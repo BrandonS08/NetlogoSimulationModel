@@ -843,15 +843,16 @@ to run-satellite-rollouts
 
     ;; --- return the remainder to the static ---
     (foreach (list 0 1 2) [ c-idx ->
-      let left (item c-idx stock-on-hand)
-      if left > 0 [
+      ;; NB: not named "left" — that is a NetLogo turtle command (turn left)
+      let unused-units (item c-idx stock-on-hand)
+      if unused-units > 0 [
         ask hub [
-          set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + left)
+          set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + unused-units)
           ;; the return credit reverses the over-issue booked at departure
           set requested-today replace-item c-idx requested-today
-              (max (list 0 ((item c-idx requested-today) - left)))
+              (max (list 0 ((item c-idx requested-today) - unused-units)))
           set dispensed-today replace-item c-idx dispensed-today
-              (max (list 0 ((item c-idx dispensed-today) - left)))
+              (max (list 0 ((item c-idx dispensed-today) - unused-units)))
         ]
         set stock-on-hand replace-item c-idx stock-on-hand 0
       ]
