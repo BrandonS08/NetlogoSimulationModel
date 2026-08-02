@@ -349,14 +349,56 @@ agent-based study of *information dynamics* rather than *formulary detail*.
 | P2 | EDCL Essential Medicines (the ~40-item CC list) | CMSD/EDCL monthly allocation |
 | P3 | Cold-chain vaccines / emergency commodities | EPI cold chain; no private substitute |
 | P4 | Diagnostics / consumables | CMSD kits + local supplement |
-| C1 | ESP / contraceptives at NGO clinics | Push-sourced (SMC/donor), free to patients |
-| C2 | RDF retail pharmaceuticals — antimicrobials, chronic-disease medicines, vitamins, general OTC | Revolving Drug Fund purchase & resale; the network's operating revenue |
+| C1 | ESP / contraceptives at NGO clinics | Push-sourced (SMC/DGFP), free to patients |
+| C2 | RDF retail pharmaceuticals — four subgroups, below | Revolving Drug Fund purchase & resale; the network's operating revenue |
 | C3 | Diagnostics / consumables at NGO clinics | Locally purchased from wholesalers, RDF-funded |
 
-**Action item for your write-up:** your background paper's Section II names
-the specific commodities and their sourcing citations for P2's forty items and
-C2's four subgroups. Paste that named list under this table in your final
-methodology document — it is the evidence that the class-level parameters
-(demand fractions, unit costs, spoilage rates) describe real commodity
-groups. The list was not in the material available to this build session, so
-it could not be reproduced here; only the structure is documented.
+### The named commodities behind each NGO class (paper §2.2.3.1)
+
+These are the real commodity groups the class-level parameters describe. They
+are documented here rather than simulated separately — the deliberate
+complexity/rigour tradeoff.
+
+**C1 — public-endorsed ESP commodities (MNACH-FP).** Long- and short-acting
+contraceptives (oral contraceptive pills e.g. Femicon; injectable
+contraceptives Soma-Sect/DMPA; condoms; emergency contraceptive pills),
+micronutrient supplements, oral rehydration salts, maternal health packs.
+*Sourcing:* vertical push from the SMC Star Network and DGFP. The SMC is the
+**only** private-sector source for injectable contraceptives, so facility
+purchasing autonomy over this class is near zero — which is exactly why C1 is
+modelled as a pure push with no reorder logic.
+
+**C2 — commercial retail pharmaceuticals, four subgroups** (Rahman et al.
+163–165):
+
+| Subgroup | Named commodities | Modelling relevance |
+|---|---|---|
+| Antimicrobials | Amoxicillin, Azithromycin, Ciprofloxacin, Cefuroxime | The paper notes these are "prone to sudden, climate-driven demand surges during monsoons or waterborne disease outbreaks" — the direct justification for applying the shock demand multiplier to C2 |
+| Chronic disease | Amlodipine, Losartan (antihypertensives), Metformin (oral hypoglycemic) | Steady baseline demand; stockouts here are continuity-of-care failures |
+| Vitamins & minerals | Calcium, Vitamin D3, Vitamins B1/B6/B12 | High turnover, low unit value |
+| General primary care / OTC | Omeprazole, esomeprazole (antiulcerants), Paracetamol, antihistamines, water purification tablets | Highest turnover; drives day-to-day RDF revenue |
+
+*Sourcing:* decentralized requisition from domestic commercial manufacturers —
+Bangladesh's pharmaceutical sector supplies 98% of domestic demand for this
+class, with the top 10 producers holding ~67% of the market (Square, Incepta,
+Beximco ≈ 36% in 2018). Purchased into SHN's own central warehouses, then
+released against clinic requisitions. **This channel is not the EDCL** — EDCL
+and CMSD serve the public sector only.
+
+**C3 — clinical diagnostics and medical consumables.** Blood glucose testing
+strips, rapid diagnostic test kits (malaria, dengue), pregnancy test kits,
+sterile syringes, saline infusion sets, PPE. *Sourcing:* decentralized local
+purchase orders from commercial medical supply wholesalers.
+
+*Why this class matters more than its size suggests:* the paper's Rakhal Gonj
+example — glucometers rendered useless because the strips and batteries were
+absent — is the clearest illustration in the whole document of a low-cost
+consumable stockout disabling a high-value capability. The model reproduces
+the mechanism (C3 stockouts block service delivery) but not the
+complementarity between specific items, which is a stated limitation.
+
+**Still needed from your paper:** the forty named public-sector commodities
+behind P1–P4. Section II as supplied establishes the CMSD/EDCL split (512 vs
+224 procurement-list items; ≥70% of government facility medicines from EDCL;
+EDL expanded to 295 medicines in January 2026) but does not enumerate the
+forty. Add that table here when you have it.

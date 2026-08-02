@@ -35,7 +35,12 @@ public-ccs-own [
 
 ngo-statics-own [
   ;; --- Revolving Drug Fund finances ---
-  rdf-capital             ;; working capital (BDT)
+  rdf-capital             ;; SPENDABLE working capital (BDT) — verified sales only
+  unverified-revenue      ;; BDT taken at the counter but not yet digitally validated.
+                          ;; Paper 2.2.4: "capital legally tied up in medical sales would
+                          ;; be useless with the systems required to validate consumption
+                          ;; being offline."  This is the financial channel of information
+                          ;; latency: an outage freezes purchasing power, not just data.
   rdf-capital-locked?     ;; true while capital cannot buy a minimum viable batch
   days-capital-locked     ;; consecutive days in the locked state
 
@@ -86,9 +91,12 @@ private-shops-own [
 ]
 
 regional-hubs-own [
-  ;; Gap 1 fix: one physical node, three DIFFERENTIATED supply channels.
-  smc-c1-stock          ;; SMC/DGFP donor push channel: C1 ESP/contraceptives
-  edcl-rdf-stock        ;; EDCL/wholesale channel: C2 RDF pharmaceuticals (requisition-driven)
+  ;; One physical node, three DIFFERENTIATED supply channels (paper 2.2.1, 2.2.3.1).
+  smc-c1-stock          ;; SMC Star Network / DGFP push channel: C1 ESP commodities
+  ngo-warehouse-stock   ;; SHN central warehouse: C2 retail pharmaceuticals bought from
+                        ;; DOMESTIC COMMERCIAL MANUFACTURERS (Square/Incepta/Beximco), then
+                        ;; released against clinic requisitions.  NOT the EDCL — EDCL and
+                        ;; CMSD serve the public sector only (paper 2.2.1 vs 2.2.3.1).
   public-channel-stock  ;; list of 4: CMSD/EDCL public push channel for P1..P4
   ;; (C3 is bought on the LOCAL wholesale market and never passes through this node.)
 ]
@@ -100,7 +108,7 @@ requisitions-own [
   unit-cost
   tick-created
   processing-lag-days  ;; central-processing-lag (C2) or local-procurement-lag (C3)
-  source-channel       ;; "edcl-hub" or "local-market"
+  source-channel       ;; "ngo-warehouse" or "local-market"
   order-status         ;; "pending" -> "fulfilled" / "partial" / "lost"
 ]
 
@@ -121,14 +129,15 @@ globals [
   num-public-ccs num-ngo-statics satellites-per-static num-private-shops
 
   ;; ---- supply channels & replenishment ----
-  edcl-replenish-interval edcl-replenish-amount
+  warehouse-replenish-interval warehouse-replenish-amount
   public-push-interval public-channel-replenish smc-c1-replenish
   ngo-class1-push-amount
   satellite-stock-targets private-shop-base-stock
 
   ;; ---- information / procurement timing ----
   fallback-recovery-lag local-procurement-lag reporting-error-rate
-  forecast-window-days
+  forecast-window-days demand-history-days
+  review-period-months            ;; MSH Box 46-1 maximum-stock formula input
 
   ;; ---- loss rates ----
   c1-monthly-spoilage-rate c2-monthly-spoilage-rate c2-monthly-shrinkage-rate
@@ -142,7 +151,7 @@ globals [
   cluster-centers
 
   ;; ---- environmental shocks ----
-  shock-active? shock-days-remaining shock-onset-probability
+  shock-active? shock-days-remaining scheduled-shock-day
   shock-duration-min shock-duration-max
   shock-demand-multiplier shock-grid-risk-add total-shock-days
 
@@ -203,14 +212,21 @@ to setup-parameters
   set class1-unit-value     5      ;; [ASSUMPTION] accounting value of donated C1 units (waste pricing)
   set p3-unit-value         100    ;; [ASSUMPTION] accounting value of one vaccine/cold-chain dose
   set c-unit-values         (list class1-unit-value class2-unit-cost class3-unit-cost)
-  set daily-operating-cost  800    ;; [CALIBRATED] keeps RDF margin thin but positive at baseline
+  set daily-operating-cost  0      ;; [PAPER 2.2.3.1] The RDF is strictly ring-fenced: "all
+                                   ;; earned capital must be rolled over and strictly contained
+                                   ;; within the RDF", and RDF capital "cannot be used for any
+                                   ;; means other than drug procurement". Operating costs fall on
+                                   ;; the separate general fund (which runs at a loss). An earlier
+                                   ;; build charged operations to the RDF; the paper contradicts
+                                   ;; that, so it is switched off. Set >0 only to test a scenario
+                                   ;; where ring-fencing breaks down.
   set donor-recap-amount    50000  ;; [ASSUMPTION] donor recapitalization grant
   set bailout-threshold-days 30    ;; [ASSUMPTION] locked days before a donor steps in
   set min-batch-days        7      ;; [ASSUMPTION] smallest economically sensible order (days of demand)
 
   ;; ---- supply channels (gap 1: differentiated CMSD / EDCL / SMC proxies) ----
-  set edcl-replenish-interval 14                      ;; [SPEC]
-  set edcl-replenish-amount   5600                    ;; [CALIBRATED] ~400 units/day vs ~390/day modeled offtake
+  set warehouse-replenish-interval 14                      ;; [SPEC]
+  set warehouse-replenish-amount   5600                    ;; [CALIBRATED] ~400 units/day vs ~390/day modeled offtake
   set public-push-interval    30                      ;; [SPEC]
   set public-channel-replenish (list 950 3400 650 1300)  ;; [CALIBRATED] ~= 12 CCs x push target + 5%
   set smc-c1-replenish        5000                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
@@ -219,10 +235,22 @@ to setup-parameters
   set private-shop-base-stock (list 100 600 200)      ;; [SPEC]
 
   ;; ---- information & procurement timing (days) ----
-  set fallback-recovery-lag   3      ;; [SPEC] behavioral stickiness after reconnection
+  set fallback-recovery-lag   7      ;; [PAPER 2.2.4] staff "grow comfortable resorting to manual
+                                     ;; paper-based inventory management — even in times of stable
+                                     ;; connection", digitising at "end-of-week or even end-of-month
+                                     ;; batch logging". End-of-week = 7 days (was 3).
   set local-procurement-lag   2      ;; [ASSUMPTION] local wholesaler delivery time for C3
-  set reporting-error-rate    0.08   ;; [ASSUMPTION] share of paper-recorded flow mis-captured
+  set reporting-error-rate    0.08   ;; [ASSUMPTION] share of paper-recorded flow mis-captured.
+                                     ;; Still unsourced. For contrast, the paper gives a DIGITAL
+                                     ;; error rate after OpenMRS of 200 per 250,000 entries
+                                     ;; (0.08%) — which is why digital-mode error is modelled as
+                                     ;; zero. Manual error is ~2 orders of magnitude larger here;
+                                     ;; the magnitude is the assumption, the direction is not.
   set forecast-window-days    14     ;; [ASSUMPTION] trailing window for demand forecasting
+  set demand-history-days     30     ;; [PAPER 2.2.3.1] monthly consumption data drives ordering
+  set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
+                                     ;; formula; monthly matches "localized monthly consumption
+                                     ;; data" and the pharmacist's "weekly/monthly" reporting duty
 
   ;; ---- loss rates (monthly fractions) ----
   set c1-monthly-spoilage-rate  0.05   ;; [SPEC]
@@ -247,7 +275,16 @@ to setup-parameters
   ;; ---- environmental shocks (monsoon/flood proxy) ----
   set shock-active?           false
   set shock-days-remaining    0
-  set shock-onset-probability (2 / 365)   ;; [SPEC] ~2 events/year
+  ;; SHOCK AS AN EXPERIMENTAL FACTOR, not a rare random event.
+  ;; The paper studies 90-day periods. At a background rate of ~2 events/year a
+  ;; random-onset shock would appear in only ~39% of runs, so a "shocks on" arm
+  ;; would be mostly indistinguishable from "shocks off" and the environmental
+  ;; half of the research question would be untestable. Instead, demand-shocks?
+  ;; = On means this 90-day period CONTAINS one shock (read it as a monsoon
+  ;; season), with its ONSET DAY randomised so timing is still stochastic.
+  ;; This controls shock presence and randomises shock timing — the standard
+  ;; way to make a rare event analysable in a short observation window.
+  set scheduled-shock-day (1 + random (max (list 1 (simulation-length-days - shock-duration-max))))
   set shock-duration-min      7           ;; [SPEC]
   set shock-duration-max      21          ;; [SPEC]
   set shock-demand-multiplier 1.8         ;; [SPEC]
@@ -255,7 +292,10 @@ to setup-parameters
   set total-shock-days        0
 
   ;; ---- run control ----
-  set simulation-length-days 3650         ;; [SPEC] ten years of daily ticks
+  set simulation-length-days 90           ;; [PAPER Section I] "track and record data over 90 day
+                                          ;; simulation periods". NOTE: at the paper's shock rate
+                                          ;; of ~2/year, only ~39% of 90-day runs contain a shock
+                                          ;; at all — see docs/09 for how to handle this.
 
   ;; ---- metrics ----
   set ngo-unmet-patients 0
@@ -291,7 +331,7 @@ to setup-geography
     set size 2.5
     setxy 0 0
     set smc-c1-stock 5000
-    set edcl-rdf-stock 10000
+    set ngo-warehouse-stock 10000
     set public-channel-stock (list 950 3400 650 1300)
   ]
 
@@ -342,7 +382,11 @@ to setup-ngo-network
     set size 1.8
     move-to-stylized-location 5
 
-    set rdf-capital 241000                  ;; [SPEC]
+    ;; [PAPER 2.2.3.1] SHN's RDF was ~241 MILLION Taka in 2024, across 134 permanent
+    ;; registered facilities => ~1.8 million Taka of revolving capital per static
+    ;; clinic. An earlier build used 241,000 per clinic, understating it ~7.5x.
+    set rdf-capital 1798000
+    set unverified-revenue 0
     set rdf-capital-locked? false
     set days-capital-locked 0
 
@@ -354,7 +398,9 @@ to setup-ngo-network
 
     set mean-daily-demand     (list 25 55 22)        ;; [SPEC]
     set forecast-daily-demand mean-daily-demand
-    set demand-history        (list mean-daily-demand)
+    ;; seeded with a full month at the baseline rate so Average Monthly Consumption
+    ;; is well-defined from day 1 (a 90-day run has no time for a warm-up period)
+    set demand-history        (n-values demand-history-days [ -> mean-daily-demand ])
     set requested-today       (list 0 0 0)
     set dispensed-today       (list 0 0 0)
     set paper-error-accum     (list 0 0 0)
@@ -460,9 +506,9 @@ to update-demand-shocks
   ifelse shock-active?
     [ set shock-days-remaining (shock-days-remaining - 1)
       if shock-days-remaining <= 0 [ set shock-active? false ] ]
-    [ if demand-shocks? and ((random-float 1.0) < shock-onset-probability) [
+    [ if demand-shocks? and (ticks = scheduled-shock-day) [
         set shock-active? true
-        ;; +1 makes shock-duration-max actually attainable (base build had an off-by-one)
+        ;; +1 makes shock-duration-max attainable (an earlier build had an off-by-one)
         set shock-days-remaining (shock-duration-min + random ((shock-duration-max - shock-duration-min) + 1))
       ] ]
   ;; counted after the state machine settles, so the first day of a shock is
@@ -614,10 +660,20 @@ to credit-ngo-revenue [ c-idx units ]   ;; runs as an NGO facility
   if c-idx = 1 [ set price class2-retail-price ]   ;; C2: RDF retail sale
   if c-idx = 2 [ set price class3-retail-price ]   ;; C3: diagnostics user fee
   if price = 0 [ stop ]                            ;; C1 is free (public ESP commodity)
+  ;; Revenue is booked as UNVERIFIED. It becomes spendable RDF capital only when
+  ;; the clinic's sales data reaches the system (see release-verified-revenue).
   ifelse breed = ngo-satellites
     [ let hub parent-hub
-      ask hub [ set rdf-capital (rdf-capital + (units * price)) ] ]
-    [ set rdf-capital (rdf-capital + (units * price)) ]
+      ask hub [ set unverified-revenue (unverified-revenue + (units * price)) ] ]
+    [ set unverified-revenue (unverified-revenue + (units * price)) ]
+end
+
+;; Called at each successful sync (digital or paper reconciliation): validated
+;; sales convert into spendable capital.  While a clinic is offline this does not
+;; run, so takings accumulate but cannot fund a requisition.
+to release-verified-revenue   ;; runs as an ngo-static
+  set rdf-capital (rdf-capital + unverified-revenue)
+  set unverified-revenue 0
 end
 
 ;; Spillover into the informal private market.  Reports the still-unserved
@@ -737,6 +793,7 @@ to update-ledger-visibility
         set ledger-snapshot-tick (item 2 (last ready))
         set pending-ledger-updates filter [ u -> (item 0 u) > ticks ] pending-ledger-updates
         set last-sync-tick ticks
+        release-verified-revenue
       ]
     ]
   ]
@@ -760,7 +817,8 @@ to process-manual-paper-fallback
               set last-sync-tick ticks
               ;; the backlog is current as of today — accurate in DATE, but still
               ;; carrying the paper error in its VALUES
-              set ledger-snapshot-tick ticks ]
+              set ledger-snapshot-tick ticks
+              release-verified-revenue ]
         ] ]
   ]
 end
@@ -778,9 +836,18 @@ end
 to record-demand-history
   ask ngo-statics [
     set demand-history lput requested-today demand-history
-    if (length demand-history) > forecast-window-days [
+    ;; 30 days retained: the full window feeds Average Monthly Consumption in the
+    ;; maximum-stock formula, the most recent 14 feed the predictive forecast
+    if (length demand-history) > demand-history-days [
       set demand-history but-first demand-history ]
   ]
+end
+
+;; the most recent FORECAST-WINDOW-DAYS entries of the consumption history
+to-report recent-demand-history   ;; runs as an ngo-static
+  let n (length demand-history)
+  let w min (list n forecast-window-days)
+  report sublist demand-history (n - w) n
 end
 
 to update-demand-forecast
@@ -790,10 +857,11 @@ to update-demand-forecast
   ;; order QUANTITIES still come from the lagged ledger, by design.
   if (ticks mod 7) = 0 [
     ask ngo-statics [
+      let recent recent-demand-history
       set forecast-daily-demand (list
-        ((mean (map [ d -> item 0 d ] demand-history)) * (0.95 + random-float 0.10))
-        ((mean (map [ d -> item 1 d ] demand-history)) * (0.95 + random-float 0.10))
-        ((mean (map [ d -> item 2 d ] demand-history)) * (0.95 + random-float 0.10)))
+        ((mean (map [ d -> item 0 d ] recent)) * (0.95 + random-float 0.10))
+        ((mean (map [ d -> item 1 d ] recent)) * (0.95 + random-float 0.10))
+        ((mean (map [ d -> item 2 d ] recent)) * (0.95 + random-float 0.10)))
     ]
   ]
 end
@@ -829,6 +897,31 @@ to-report minimum-c2-batch   ;; runs as an ngo-static
   report round (min-batch-days * (item 1 mean-daily-demand))
 end
 
+;; Average Monthly Consumption, computed from the clinic's own OBSERVED demand
+;; history — "localized monthly consumption data" (paper 2.2.3.1, citing MSH).
+to-report average-monthly-consumption [ c-idx ]
+  report ((mean (map [ d -> item c-idx d ] demand-history)) * 30)
+end
+
+;; THE MAXIMUM STOCK APPROACH — the order-quantity rule the paper specifies:
+;;   Order Quantity = (Average Monthly Consumption x Review Period)
+;;                    + Safety Stock - Stock On Hand      (MSH 46.8, Box 46-1)
+;;
+;; "Stock On Hand" is deliberately read from RECORDED-STOCK-LEDGER, not from
+;; true stock.  That substitution is the entire research design: the formula is
+;; correct, the number fed into it is stale, and the resulting order is wrong
+;; by exactly the size of the information gap.
+;;
+;; The result is floored at zero (a clinic that believes it is over-stocked
+;; orders nothing) and capped by physical storage capacity.
+to-report max-stock-order-quantity [ c-idx ]
+  let amc (average-monthly-consumption c-idx)
+  let believed (item c-idx recorded-stock-ledger)
+  let raw ((amc * review-period-months) + (item c-idx safety-stock) - believed)
+  let storage-room ((item c-idx max-stock-capacity) - believed)
+  report max (list 0 (round (min (list raw storage-room))))
+end
+
 ;; Reorder decisions.  DELIBERATE: both the trigger and the order quantity read
 ;; RECORDED-STOCK-LEDGER (the lagged, possibly corrupted belief), never
 ;; STOCK-ON-HAND.  Predictive modeling changes only WHEN an order fires (it
@@ -839,12 +932,11 @@ to process-ngo-reorders
     ;; ---- C2: RDF pharmaceuticals via the EDCL/wholesale hub channel ----
     if (not c2-order-outstanding?) and (not rdf-capital-locked?) [
       if (reorder-triggered? 1) [
-        let believed (item 1 recorded-stock-ledger)
-        let desired ((item 1 max-stock-capacity) - believed)
+        let desired (max-stock-order-quantity 1)
         let affordable floor (rdf-capital / class2-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
-          place-requisition 1 qty class2-unit-cost central-processing-lag "edcl-hub"
+          place-requisition 1 qty class2-unit-cost central-processing-lag "ngo-warehouse"
           set c2-order-outstanding? true
         ]
       ]
@@ -856,8 +948,7 @@ to process-ngo-reorders
     ;; climb back out of the lock.
     if (not c3-order-outstanding?) and (not rdf-capital-locked?) [
       if (reorder-triggered? 2) [
-        let believed (item 2 recorded-stock-ledger)
-        let desired ((item 2 max-stock-capacity) - believed)
+        let desired (max-stock-order-quantity 2)
         let affordable floor (rdf-capital / class3-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
@@ -914,14 +1005,14 @@ to process-pending-requisitions
       ;; supply constraint: the hub channel can ration; the local wholesale
       ;; market is treated as unconstrained (documented assumption)
       let supply-cap qty
-      if source-channel = "edcl-hub" [ set supply-cap [ edcl-rdf-stock ] of hub ]
+      if source-channel = "ngo-warehouse" [ set supply-cap [ ngo-warehouse-stock ] of hub ]
       ;; financial constraint re-checked at delivery time
       let affordable floor (([ rdf-capital ] of clinic) / cost-per)
       let shipped max (list 0 (min (list qty supply-cap affordable)))
 
       ifelse shipped > 0
-        [ if source-channel = "edcl-hub" [
-            ask hub [ set edcl-rdf-stock (edcl-rdf-stock - shipped) ] ]
+        [ if source-channel = "ngo-warehouse" [
+            ask hub [ set ngo-warehouse-stock (ngo-warehouse-stock - shipped) ] ]
           ask clinic [
             set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + shipped)
             set rdf-capital (rdf-capital - (shipped * cost-per))
@@ -957,8 +1048,8 @@ end
 
 to run-replenishment-cycles
   ;; EDCL/wholesale C2 channel restocks every 14 days
-  if (ticks > 0) and ((ticks mod edcl-replenish-interval) = 0) [
-    ask regional-hubs [ set edcl-rdf-stock (edcl-rdf-stock + edcl-replenish-amount) ]
+  if (ticks > 0) and ((ticks mod warehouse-replenish-interval) = 0) [
+    ask regional-hubs [ set ngo-warehouse-stock (ngo-warehouse-stock + warehouse-replenish-amount) ]
   ]
 
   ;; monthly: channel deliveries arrive, then the rigid top-down pushes go out
@@ -1161,6 +1252,13 @@ end
 
 to-report mean-rdf-capital
   report mean [ rdf-capital ] of ngo-statics
+end
+
+;; Takings that exist physically but cannot yet be spent because the sale has
+;; not been digitally validated.  This is the financial cost of information
+;; latency (paper 2.2.4) and should rise sharply during connectivity outages.
+to-report mean-unverified-revenue
+  report mean [ unverified-revenue ] of ngo-statics
 end
 
 ;; ---- raw requisition log export (optional; press the button after a run) ----
@@ -1508,8 +1606,8 @@ MONITOR
 624
 100
 669
-donor bailouts
-donor-bailouts-total
+unverified takings
+mean-unverified-revenue
 0
 1
 11
@@ -1519,6 +1617,17 @@ MONITOR
 624
 195
 669
+donor bailouts
+donor-bailouts-total
+0
+1
+11
+
+MONITOR
+10
+672
+100
+717
 shock active?
 shock-active?
 0
@@ -1603,7 +1712,7 @@ PENS
 
 Full plain-English documentation lives in the repository docs/ folder:
 01 pasteable code, 02 interface setup, 03 procedure walkthrough,
-04 assumptions & limitations, 05 verification checks, 06 changelog, 07 BehaviorSpace.
+04 assumptions & limitations, 05 verification checks, 06 changelog, 07 BehaviorSpace, 08 parameter cross-check, 09 paper alignment.
 
 Core mechanic: NGO reorder decisions read a lagged, error-corrupted ledger
 (recorded-stock-ledger), never true stock-on-hand. The gap between the two is
@@ -1659,7 +1768,7 @@ NetLogo 6.4.0
   <experiment name="latency-experiment" repetitions="20" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
-    <timeLimit steps="1095"/>
+    <timeLimit steps="90"/>
     <metric>ngo-unmet-patients</metric>
     <metric>ngo-unmet-own</metric>
     <metric>ngo-unmet-diverted</metric>
@@ -1683,6 +1792,7 @@ NetLogo 6.4.0
     <metric>mean-ledger-age-days</metric>
     <metric>mean-ledger-gap-c2</metric>
     <metric>mean-rdf-capital</metric>
+    <metric>mean-unverified-revenue</metric>
     <metric>donor-bailouts-total</metric>
     <metric>total-shock-days</metric>
     <enumeratedValueSet variable="info-latency-severity">

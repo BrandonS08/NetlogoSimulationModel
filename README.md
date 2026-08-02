@@ -28,7 +28,8 @@ read any code, and you never need to open more than one file to run the model.
 | **[docs/05-VERIFICATION-CHECKS.md](docs/05-VERIFICATION-CHECKS.md)** | Four checks you can run yourself to confirm correct behavior |
 | **[docs/06-CHANGELOG.md](docs/06-CHANGELOG.md)** | Every bug found in the previous build and why each fix was needed |
 | **[docs/07-BEHAVIORSPACE.md](docs/07-BEHAVIORSPACE.md)** | Running 640 replications and aggregating with variance |
-| **[docs/08-PARAMETER-CROSSCHECK.md](docs/08-PARAMETER-CROSSCHECK.md)** | **Checklist for verifying every parameter against your research paper** — the one substantive task still outstanding |
+| [docs/08-PARAMETER-CROSSCHECK.md](docs/08-PARAMETER-CROSSCHECK.md) | Parameter-by-parameter provenance checklist |
+| **[docs/09-PAPER-ALIGNMENT.md](docs/09-PAPER-ALIGNMENT.md)** | **What the research paper confirmed, the seven things it changed, and four decisions needed from you** |
 
 **If you are setting the model up from scratch for the first time:** build the
 four widgets in `02` Phase A first, then follow `00-START-HERE.md`.

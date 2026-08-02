@@ -91,6 +91,7 @@ monitors = [
     ("shock days",         "total-shock-days",               0),
     ("req fill rate",      "requisition-fill-rate",          2),
     ("mean RDF capital",   "mean-rdf-capital",               0),
+    ("unverified takings", "mean-unverified-revenue",        0),
     ("donor bailouts",     "donor-bailouts-total",           0),
     ("shock active?",      "shock-active?",                  0),
 ]
@@ -118,7 +119,7 @@ info = """# Bangladesh Health Clinic Information Latency Model (hardened build v
 
 Full plain-English documentation lives in the repository docs/ folder:
 01 pasteable code, 02 interface setup, 03 procedure walkthrough,
-04 assumptions & limitations, 05 verification checks, 06 changelog, 07 BehaviorSpace.
+04 assumptions & limitations, 05 verification checks, 06 changelog, 07 BehaviorSpace, 08 parameter cross-check, 09 paper alignment.
 
 Core mechanic: NGO reorder decisions read a lagged, error-corrupted ledger
 (recorded-stock-ledger), never true stock-on-hand. The gap between the two is
@@ -188,14 +189,15 @@ metrics = [
     "requisition-fill-rate", "public-availability-pct",
     "public-facility-stockout-pct", "pct-time-on-paper",
     "mean-ledger-age-days", "mean-ledger-gap-c2",
-    "mean-rdf-capital", "donor-bailouts-total", "total-shock-days",
+    "mean-rdf-capital", "mean-unverified-revenue",
+    "donor-bailouts-total", "total-shock-days",
 ]
 metric_xml = "\n    ".join(f"<metric>{m}</metric>" for m in metrics)
 behaviorspace = f"""<experiments>
   <experiment name="latency-experiment" repetitions="20" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
-    <timeLimit steps="1095"/>
+    <timeLimit steps="90"/>
     {metric_xml}
     <enumeratedValueSet variable="info-latency-severity">
       <value value="0"/>
