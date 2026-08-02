@@ -110,7 +110,7 @@ cascade, exactly as designed:
   these patients are counted in `coldchain-unserved` (referral to higher-tier
   care). Preserved exactly from the base design.
 
-`dispense-from-ngo` is the single shared routine for taking units off an NGO
+`serve-from-stock` is the single shared routine for taking units off an NGO
 shelf. It also: records the request in the clinic's daily books (feeding the
 forecast), and **credits RDF revenue** — C2 at the retail price, C3 at the
 diagnostics user fee, C1 free (public ESP commodity). Satellites credit their
@@ -305,8 +305,33 @@ Supporting metrics: `completely-unserved-patients`, `coldchain-unserved`,
 `routine-referrals`, `private-rescues`, requisition counters and
 `requisition-fill-rate`, `public-availability-pct` and
 `public-facility-stockout-pct` (the two calibration benchmarks),
-`mean-ledger-gap-c2`, `pct-time-on-paper`, `mean-rdf-capital`,
-`donor-bailouts-total`, `total-shock-days`.
+`mean-ledger-age-days`, `mean-ledger-gap-c2`, `pct-time-on-paper`,
+`mean-rdf-capital`, `donor-bailouts-total`, `total-shock-days`.
+
+### Two measurement cautions you need for the write-up
+
+**1. Metrics 1, 3 and 4 are diluted by components that cannot respond to the
+treatment.** Public community clinics run on a rigid push cycle with no
+information mechanics at all, and satellites restock to fixed weekly targets.
+Both contribute large, essentially constant amounts to `ngo-unmet-patients`,
+`lines-ever-zero` and `zero-episode-total`. Only the three NGO statics carry
+the latency layer, so a change in `info-latency-severity` or
+`predictive-modeling?` can only move the static component. Always report the
+decomposition alongside the total — `ngo-unmet-own` vs `ngo-unmet-diverted`,
+and `static-zero-episodes` vs `satellite-zero-episodes` vs
+`public-zero-episodes`. A reviewer who sees only the totals will conclude the
+treatment effect is small; the decomposition shows where it actually lives.
+
+**2. `mean-ledger-gap-c2` is confounded by stock volatility, and
+`mean-ledger-age-days` is not.** The gap measures `|belief − reality|` in
+units, which is roughly how much stock moved during the staleness window. Any
+intervention that smooths the stock trajectory shrinks the gap without
+improving the information system at all. So the gap is a valid measure of *how
+costly* staleness is, but not of *how stale the data is*. Ledger age — how
+many days out of date the ledger is — depends only on connectivity and
+severity, and is the metric to cite when demonstrating that predictive
+modeling leaves data accuracy untouched. Both are reported; use them for
+different claims.
 
 ---
 

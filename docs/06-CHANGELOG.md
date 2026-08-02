@@ -309,8 +309,106 @@ public push cycle and is large, so it dilutes the latency signal in the
 headline number. Reporting both lets you show the effect cleanly instead of
 having a reviewer ask why the treatment effect looks small.
 
+### N7. Ledger age and metric decomposition (added in revision v2)
+See Part 5 below — added in response to the first test round, to make the
+model's central claim measurable.
+
 ### N6. Stockout episode tracking
 Outcome metrics 3 and 4 require distinguishing "hit zero at some point" from
 "hit zero repeatedly". The base had one flat counter
 (`total-stockout-events`) that actually counted *patients*, not events, and no
 per-line state at all — it could not have answered either question.
+
+---
+
+## Part 5 — Revision v2: corrections after the first test round
+
+The model was built and run for the first time here. Three observations came
+back. **None of them was a model bug** — two were defects in my verification
+instructions and one was a correct observation about a metric's statistical
+properties. Recording them because the reasoning belongs in the methodology
+write-up.
+
+### V1. Check 1 specified an incomplete control condition — *doc fix*
+*Reported:* with `info-latency-severity` = 0 and `grid-failure-rate` = 0,
+"% time on paper" was above zero and the two pens in Plot 1 were very slightly
+apart, where the check said both should be exactly zero.
+
+*Cause:* the check left `demand-shocks?` On. An active shock adds
+`shock-grid-risk-add` (0.25) to the grid-failure rate — a flood cuts power
+regardless of the baseline rate — so clinics still disconnected, still fell
+back to paper, and the ledger still froze during those episodes. The observed
+pen separation is that freeze, correctly rendered. Note it was *small*, which
+is itself confirmation the code is right: with severity 0 the paper error term
+is `dispensed × 0.08 × 0` = exactly zero, so the only divergence is the freeze
+itself, with no error component on top.
+
+*Fix:* check 1 now requires `demand-shocks?` Off as the third control setting,
+and explains why. Model unchanged.
+
+### V2. Check 2 used a metric that cannot test its own claim — *metric fix*
+*Reported:* enabling `predictive-modeling?` cut the C2 ledger gap from 1,018 to
+739 (the check said it should be unchanged), while total zero episodes rose
+slightly, 3,574 → 3,642 (the check said they should fall).
+
+*Cause, part one — the gap.* `mean-ledger-gap-c2` is `|ledger − true|` in
+units. Since the ledger is a stale snapshot, that quantity is approximately
+*how much stock moved during the staleness window*. Better reorder timing
+produces a smoother stock trajectory — no deep crashes followed by large
+restock jumps — so the same staleness translates into a smaller numeric gap.
+The information pipeline is untouched; only the trajectory it is sampling
+changed. The metric was the wrong instrument, and the check's expectation was
+naive. The 27% reduction is a **real and reportable secondary finding**
+(staleness becomes less costly when inventory is better managed), but it is
+not evidence about data accuracy.
+
+*Fix:* added `ledger-snapshot-tick` per clinic and the reporter
+`mean-ledger-age-days` — how many days out of date the ledger is. This depends
+only on connectivity draws and `info-latency-severity`, and is mathematically
+incapable of responding to order timing, so it is the correct test of "does
+prediction repair the data?". Together with `pct-time-on-paper` it gives two
+independent invariants that must hold across the predictive arms.
+
+*Cause, part two — the zero episodes.* `zero-episode-total` counts all 84
+facility×class lines. Public community clinics (48 lines) run a rigid 30-day
+push with **no information mechanics at all**, and satellites (27 lines)
+restock to fixed weekly targets. Neither can respond to the predictive toggle.
+Only the 9 static lines can. So the headline total is roughly 90% inert with
+respect to the treatment, and a 1.9% single-run movement in it is noise, not a
+sign reversal.
+
+*Fix:* added `static-zero-episodes`, `satellite-zero-episodes` and
+`public-zero-episodes`. Check 2 now reads the statics-only figure, and requires
+three paired runs rather than one, since single-run differences under ~10% are
+not interpretable. This is the same dilution problem already handled for
+outcome metric 1 by N5, now extended to metrics 3 and 4.
+
+*Model behavior unchanged by either fix* — these are new observables, not new
+mechanics.
+
+### V3. Calibration metrics show almost no run-to-run variation — *correct
+observation, no defect*
+*Reported:* the calibration figures landed on the stated target or mid-range on
+essentially every run, raising a reasonable question about whether the
+stochastic machinery was working.
+
+*Assessment: this is the expected behavior, and worth being able to defend.*
+`public-availability-pct` is a cumulative average over 12 clinics × 4 lines ×
+1,000 days ≈ 48,000 line-days; its standard error is a fraction of a
+percentage point. The underlying mechanism is also close to deterministic —
+push to target every 30 days, deplete at a near-constant rate, cross zero
+around day 13 — so `13/30 = 43.3%` is a structural property, not a sampling
+outcome. Stability here is the law of large numbers, the same reason 48,000
+fair coin flips always land near 50%.
+
+The randomness is genuinely present; it simply lives in the low-aggregation
+metrics. `total-shock-days` (a Poisson-style process with only ~6 events per
+3-year run), `donor-bailouts-total`, `static-zero-episodes` and
+`mean-rdf-capital` all vary visibly run to run. Check 5 was added so this can
+be demonstrated rather than asserted, and it also documents the one thing that
+*would* break variability: adding `random-seed` to `setup`, which the model
+deliberately does not do.
+
+*Guidance for the write-up:* report calibration figures as point values (they
+are stable by construction) and the four outcome metrics as means with
+standard deviations across BehaviorSpace replications.

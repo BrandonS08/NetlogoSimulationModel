@@ -135,6 +135,25 @@ calibration benchmarks from your paper; 9–10 are the information-latency
 diagnostics. 5, 6, 11–14 are supporting diagnostics — add them if you have
 screen space, in this priority order.
 
+### Phase D.2 — four monitors added in revision v2 (add these now)
+
+These came out of the first test round: the original monitor set could not
+actually demonstrate the model's central claim, and two of them are needed by
+the corrected check 2 in `05-VERIFICATION-CHECKS.md`. Add them the same way as
+the others. You do **not** need to rebuild anything else — but you do need to
+re-paste the Code tab from `01-PASTE-THIS-CODE.md` first, since these
+reporters are new.
+
+| Reporter (type exactly)   | Display name        | Decimals | What it tells you |
+|---------------------------|---------------------|----------|-------------------|
+| `mean-ledger-age-days`    | ledger age (days)   | 2 | **The clean measure of information quality**: how many days out of date the ledger is. Unlike the gap monitor, this cannot be moved by better ordering — which is exactly what makes it the right test of "predictive modeling doesn't fix data accuracy". |
+| `static-zero-episodes`    | static zero eps     | 0 | Zero-stock episodes at NGO static hubs only — the **only** facilities with information mechanics, so the only place a latency or predictive effect can appear. |
+| `ngo-unmet-own`           | ...of which own     | 0 | The share of unmet demand from the NGO network's own patients rather than public-clinic spillover. |
+| `total-shock-days`        | shock days          | 0 | Cumulative days spent under environmental shock — a high-variance metric, useful for confirming run-to-run randomness (check 5). |
+
+If screen space is tight, `ledger age (days)` and `static zero eps` are the two
+that matter; the other two are convenience.
+
 ---
 
 ## Phase E — plots
