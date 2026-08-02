@@ -42,6 +42,9 @@ ngo-statics-own [
   ;; --- physical vs recorded inventory (THE core mechanic) ---
   stock-on-hand           ;; list of 3: TRUE physical units of C1..C3
   recorded-stock-ledger   ;; list of 3: what the information system BELIEVES
+  ledger-snapshot-tick    ;; the day whose reality the ledger currently reflects
+                          ;; (ticks - this = ledger age; the clean, trajectory-free
+                          ;;  measure of information quality — see docs/05 check 2)
   safety-stock            ;; list of 3: reorder trigger level
   max-stock-capacity      ;; list of 3: order-up-to level
   mean-daily-demand       ;; list of 3: baseline daily demand means (was misnamed average-monthly-cons)
@@ -345,6 +348,7 @@ to setup-ngo-network
 
     set stock-on-hand         (list 800 1500 500)    ;; [SPEC]
     set recorded-stock-ledger (list 800 1500 500)
+    set ledger-snapshot-tick  0
     set safety-stock          (list 200 400 150)     ;; [SPEC]
     set max-stock-capacity    (list 1200 2500 800)   ;; [SPEC]
 
@@ -725,10 +729,12 @@ to update-ledger-visibility
   ask ngo-statics [
     if is-connected? and (not manual-fallback?) [
       let total-lag ((dispensation-lag + sync-lag) * info-latency-severity)
-      set pending-ledger-updates lput (list (ticks + total-lag) stock-on-hand) pending-ledger-updates
+      ;; each queued entry is (due-tick , stock-snapshot , tick-the-snapshot-was-taken)
+      set pending-ledger-updates lput (list (ticks + total-lag) stock-on-hand ticks) pending-ledger-updates
       let ready filter [ u -> (item 0 u) <= ticks ] pending-ledger-updates
       if not empty? ready [
         set recorded-stock-ledger (item 1 (last ready))
+        set ledger-snapshot-tick (item 2 (last ready))
         set pending-ledger-updates filter [ u -> (item 0 u) > ticks ] pending-ledger-updates
         set last-sync-tick ticks
       ]
@@ -751,7 +757,10 @@ to process-manual-paper-fallback
               set paper-error-accum (list 0 0 0)
               set pending-ledger-updates []      ;; stale in-flight snapshots are superseded
               set manual-fallback? false
-              set last-sync-tick ticks ]
+              set last-sync-tick ticks
+              ;; the backlog is current as of today — accurate in DATE, but still
+              ;; carrying the paper error in its VALUES
+              set ledger-snapshot-tick ticks ]
         ] ]
   ]
 end
@@ -1065,6 +1074,24 @@ to-report ngo-zero-episodes [ c-idx ]
   report sum [ item c-idx zero-episodes ] of (turtle-set ngo-statics ngo-satellites)
 end
 
+;; Decomposition of outcome metric 4 by facility type.  The headline total is
+;; dominated by public CCs (rigid 30-day push, no information mechanics at all)
+;; and by satellites (fixed weekly restock targets), NEITHER of which can
+;; respond to the latency or predictive settings.  Only the statics carry the
+;; information layer, so STATIC-ZERO-EPISODES is where a treatment effect can
+;; actually appear.  (docs/05 check 2)
+to-report static-zero-episodes
+  report sum [ sum zero-episodes ] of ngo-statics
+end
+
+to-report satellite-zero-episodes
+  report sum [ sum zero-episodes ] of ngo-satellites
+end
+
+to-report public-zero-episodes
+  report sum [ sum zero-episodes ] of public-ccs
+end
+
 ;; Share of outcome 1 attributable to the NGO network's own patients rather
 ;; than to spillover from public-facility stockouts.  Useful because the
 ;; diverted component is driven mainly by the (latency-free) public push
@@ -1090,6 +1117,22 @@ to-report public-facility-stockout-pct   ;; share of facility-days with >=1 clas
 end
 
 ;; ---- information-layer monitors ----
+
+;; THE clean test of information quality.  How many days out of date is the
+;; ledger?  This depends only on connectivity draws and info-latency-severity —
+;; never on stock levels, order timing or the predictive toggle.  Use this,
+;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
+;; untouched while improving reorder TIMING.  (docs/05 check 2)
+to-report mean-ledger-age-days
+  report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
+end
+
+;; Units of disagreement between belief and reality.  IMPORTANT CAVEAT: this
+;; is confounded by stock volatility.  A stale snapshot of a SMOOTH stock
+;; trajectory is numerically closer to the truth than an equally stale
+;; snapshot of a CRASHING one, so any intervention that stabilises stock will
+;; shrink this number without improving the information system at all.
+;; Interpret it as "how costly is the staleness", not "how stale is the data".
 to-report mean-ledger-gap-c2
   report mean [ abs ((item 1 recorded-stock-ledger) - (item 1 stock-on-hand)) ] of ngo-statics
 end
@@ -1388,6 +1431,28 @@ MONITOR
 432
 195
 477
+ledger age (days)
+mean-ledger-age-days
+2
+1
+11
+
+MONITOR
+10
+480
+100
+525
+static zero eps
+static-zero-episodes
+0
+1
+11
+
+MONITOR
+103
+480
+195
+525
 C2 ledger gap
 mean-ledger-gap-c2
 1
@@ -1396,9 +1461,9 @@ mean-ledger-gap-c2
 
 MONITOR
 10
-480
+528
 100
-525
+573
 % time on paper
 pct-time-on-paper
 1
@@ -1407,33 +1472,11 @@ pct-time-on-paper
 
 MONITOR
 103
-480
-195
-525
-req fill rate
-requisition-fill-rate
-2
-1
-11
-
-MONITOR
-10
-528
-100
-573
-mean RDF capital
-mean-rdf-capital
-0
-1
-11
-
-MONITOR
-103
 528
 195
 573
-donor bailouts
-donor-bailouts-total
+shock days
+total-shock-days
 0
 1
 11
@@ -1443,6 +1486,39 @@ MONITOR
 576
 100
 621
+req fill rate
+requisition-fill-rate
+2
+1
+11
+
+MONITOR
+103
+576
+195
+621
+mean RDF capital
+mean-rdf-capital
+0
+1
+11
+
+MONITOR
+10
+624
+100
+669
+donor bailouts
+donor-bailouts-total
+0
+1
+11
+
+MONITOR
+103
+624
+195
+669
 shock active?
 shock-active?
 0
@@ -1591,6 +1667,9 @@ NetLogo 6.4.0
     <metric>lines-ever-zero</metric>
     <metric>zero-episode-total</metric>
     <metric>zero-episodes-per-line</metric>
+    <metric>static-zero-episodes</metric>
+    <metric>satellite-zero-episodes</metric>
+    <metric>public-zero-episodes</metric>
     <metric>completely-unserved-patients</metric>
     <metric>coldchain-unserved</metric>
     <metric>private-rescues</metric>
@@ -1601,6 +1680,7 @@ NetLogo 6.4.0
     <metric>public-availability-pct</metric>
     <metric>public-facility-stockout-pct</metric>
     <metric>pct-time-on-paper</metric>
+    <metric>mean-ledger-age-days</metric>
     <metric>mean-ledger-gap-c2</metric>
     <metric>mean-rdf-capital</metric>
     <metric>donor-bailouts-total</metric>

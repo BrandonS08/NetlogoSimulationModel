@@ -44,6 +44,9 @@ waste-value-total
 lines-ever-zero
 zero-episode-total
 zero-episodes-per-line
+static-zero-episodes
+satellite-zero-episodes
+public-zero-episodes
 completely-unserved-patients
 coldchain-unserved
 private-rescues
@@ -54,15 +57,25 @@ requisition-fill-rate
 public-availability-pct
 public-facility-stockout-pct
 pct-time-on-paper
+mean-ledger-age-days
 mean-ledger-gap-c2
 mean-rdf-capital
 donor-bailouts-total
 total-shock-days
 ```
 
-The first four lines are your four required outcome metrics
-(`lines-ever-zero` = items that hit zero at any point;
-`zero-episode-total` = how often items hit zero across the run).
+Your four required outcome metrics are `ngo-unmet-patients`,
+`waste-value-total`, `lines-ever-zero` (items that hit zero at any point) and
+`zero-episode-total` (how often items hit zero across the run).
+
+**Analyse the decomposed columns, not only the totals.** `ngo-unmet-own` and
+`static-zero-episodes` isolate the facilities that actually carry the
+information layer; the totals also contain public-clinic and satellite
+components that are structurally incapable of responding to either treatment
+and will flatten your effect sizes. `mean-ledger-age-days` is the
+trajectory-independent measure of information quality — see
+`03-MODEL-DOCUMENTATION.md` §10 for why it and `mean-ledger-gap-c2` support
+different claims.
 
 7. **Uncheck** "Measure runs at every step". You want one row per run, not
    1,095 rows per run — leaving this checked produces a 700,000-row file.
@@ -95,9 +108,12 @@ outcome across the 20 replications. The three comparisons your paper needs:
    `predictive-modeling?` false. Expect unmet demand, waste and zero-episodes
    to rise monotonically with severity.
 2. **Mitigation effect** — predictive true vs false at each severity level.
-   Expect unmet demand and zero-episodes to fall, and — the finding worth
-   emphasizing — `mean-ledger-gap-c2` to stay **unchanged**, demonstrating that
-   prediction fixes timing without fixing data accuracy.
+   Expect `static-zero-episodes` and `ngo-unmet-own` to fall, while
+   `mean-ledger-age-days` and `pct-time-on-paper` stay **statistically
+   identical** — that pair of results is the finding worth emphasizing:
+   prediction fixes timing without fixing data accuracy. (`mean-ledger-gap-c2`
+   will also fall; that is a genuine secondary result about staleness becoming
+   *less costly*, not evidence of better data. Do not present it as the latter.)
 3. **Interaction** — whether the predictive benefit shrinks as severity rises
    (does forecasting still help when the underlying data is badly degraded?).
    This is the most interesting result the design can produce, and it directly

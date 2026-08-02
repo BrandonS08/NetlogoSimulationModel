@@ -3,11 +3,15 @@
 These follow the Sargent verification-and-validation framework: each check
 pushes the model to a condition where the correct behavior is *known in
 advance*, so you can confirm the implementation matches the design without
-reading code. Expected values are ranges, because the model is stochastic —
-if a result lands far outside the stated range on two consecutive tries,
-something is wrong and worth reporting.
+reading code.
 
-Before starting: complete `02-INTERFACE-SETUP.md` through Phase F.
+> **Revision note (v2).** Checks 1 and 2 were corrected after the first test
+> round. Check 1 specified the wrong control condition, and check 2 used a
+> metric that cannot test the claim it was aimed at. Both errors were in the
+> *instructions*, not in the model. Details in `06-CHANGELOG.md` Part 5.
+
+Before starting: complete `02-INTERFACE-SETUP.md`, including the three
+monitors added in Phase D.2.
 
 ---
 
@@ -16,75 +20,159 @@ Before starting: complete `02-INTERFACE-SETUP.md` through Phase F.
 **Claim being tested:** the entire true-vs-ledger gap is produced by the
 latency machinery and by nothing else.
 
-1. Set `info-latency-severity` to **0** and `grid-failure-rate` to **0**.
-   Leave `predictive-modeling?` Off, `demand-shocks?` On.
-2. Click **setup**, then **go**; let it run ~500 days.
-3. **Expected:** the "C2 ledger gap" monitor stays at **0.0 the entire run**
-   (the two pens in Plot 1 lie exactly on top of each other), and
-   "% time on paper" stays at 0. Stockouts still occur (public availability
-   still ~40–50%) — scarcity comes from push rigidity, not from information
-   failure.
-4. Now set `info-latency-severity` to **3** and `grid-failure-rate` to
-   **0.4**, press setup, run ~500 days. **Expected:** ledger gap typically in
-   the **hundreds of units**, "% time on paper" above **60%**, and visibly
-   worse "unmet @ NGO" and "zero episodes" than step 3.
+**The control condition requires THREE settings, not two:**
 
-*If step 3 shows any nonzero gap, the latency machinery is leaking — report
-it. If step 4 shows no difference from step 3, the sliders are not wired in.*
+1. `info-latency-severity` = **0**
+2. `grid-failure-rate` = **0**
+3. `demand-shocks?` = **Off**  ← this one is essential
 
-## Check 2 — Predictive modeling fixes timing, NOT data accuracy (the design's signature)
+*Why shocks must be off:* an active shock adds `shock-grid-risk-add` (0.25) to
+the grid-failure rate, by design — a flood knocks out power regardless of the
+baseline rate. So with shocks On, clinics still lose connectivity even at
+`grid-failure-rate` = 0, still fall back to paper, and the ledger still
+freezes during those episodes. That is correct model behavior; the original
+version of this check simply did not describe a clean control condition.
+
+**Steps:** set the three controls, click **setup**, then **go**, run ~500 days.
+
+**Expected:**
+- "C2 ledger gap" = **0.0** for the whole run
+- "ledger age (days)" = **0.0** for the whole run
+- "% time on paper" = **0.0**
+- the two pens in Plot 1 lie exactly on top of each other
+- stockouts still occur (public availability still ~43%) — scarcity comes from
+  push rigidity, not information failure
+
+**Then the opposite extreme:** `info-latency-severity` = **3**,
+`grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run ~500 days.
+Expect ledger gap in the hundreds of units, ledger age well above 9 days,
+"% time on paper" above 60%, and clearly worse unmet demand.
+
+*If the first condition shows any nonzero gap or paper time, report it — that
+would be a real leak. If the second shows no difference, the sliders are not
+wired in.*
+
+---
+
+## Check 2 — Predictive modeling fixes timing, NOT data accuracy
 
 **Claim being tested:** the predictive toggle improves reorder timing while
-leaving the ledger's corruption untouched — the deliberate separation at the
-center of your research design.
+leaving the information system's accuracy untouched.
 
-1. Set `info-latency-severity` **2**, `grid-failure-rate` **0.25**,
-   `demand-shocks?` On, `predictive-modeling?` **Off**.
-2. setup → go → run to day **1000** (watch the tick counter). Write down:
-   "unmet @ NGO", "zero episodes", and "C2 ledger gap".
-3. Flip `predictive-modeling?` **On**. setup → go → run to day 1000 again.
-   Write down the same three numbers.
-4. **Expected:** "unmet @ NGO" and "zero episodes" **clearly lower** with
-   predictive On (typically tens of percent, though single runs vary), but
-   "C2 ledger gap" **statistically unchanged** — same order of magnitude,
-   no systematic improvement.
+**Read this before running — it explains why the obvious metric is the wrong
+one.** "C2 ledger gap" measures `|ledger − true stock|` in units. The ledger is
+a stale snapshot, so that gap is roughly *how much stock moved during the
+staleness window*. Anything that makes the stock trajectory **smoother** makes
+that number smaller without touching the information system at all — and
+smoother stock is exactly what better reorder timing produces. So the gap
+falling when you enable predictive modeling is a **real and interpretable
+result** (latency costs less when inventory is better managed), but it is
+**not** evidence that prediction repaired the data. It cannot test that claim.
 
-*If the gap collapses when predictive turns On, the forecast is illegally
-repairing the ledger — that would violate the core design and should be
-reported. If unmet does not improve at all across several paired tries, the
-predictive arm is inert.*
+The metric that *can* test it is **"ledger age (days)"** — how many days out of
+date the ledger is. That depends only on connectivity and
+`info-latency-severity`. Order timing cannot change it, so it must come out
+statistically identical across the two arms.
+
+**Steps:**
+1. `info-latency-severity` = 2, `grid-failure-rate` = 0.25, `demand-shocks?`
+   On, `predictive-modeling?` **Off**.
+2. setup → go → run to day **1000**. Record: **static zero episodes**,
+   **unmet @ NGO**, **ledger age (days)**, **% time on paper**.
+3. Flip `predictive-modeling?` **On**. setup → go → run to day 1000. Record the
+   same four.
+4. **Repeat both arms at least 3 times** and compare averages, not single runs
+   (see check 5 — single-run differences under ~10% are noise).
+
+**Expected:**
+
+| Metric | Expected direction | Why |
+|---|---|---|
+| **ledger age (days)** | **Unchanged** (within ~0.2 days) | The claim under test: prediction cannot repair data currency |
+| **% time on paper** | **Unchanged** | Connectivity is independent of ordering |
+| **static zero episodes** | **Lower** with predictive On | Earlier reordering at the only agents that carry the information layer |
+| unmet @ NGO | Lower, but modestly | Diluted — see note below |
+| C2 ledger gap | Lower — and that is fine | Confounded by stock volatility, as explained above |
+
+**Use "static zero episodes", not the headline "zero episodes" total.** The
+total counts all 84 lines, and it is dominated by public clinics (rigid
+30-day push, no information mechanics whatsoever) and satellites (fixed weekly
+restock targets). Neither can respond to the predictive toggle, so they add a
+large constant that buries the effect. A total moving from 3,574 to 3,642 is
+noise in a component that *cannot* respond; the statics-only figure is the one
+carrying the signal. The same dilution applies to "unmet @ NGO", which is why
+"...of which own" exists as a separate monitor.
+
+*If **ledger age** drops when predictive turns On, that is a genuine violation
+of the design — report it. If **static zero episodes** shows no improvement
+across three paired runs, the predictive arm is inert.*
+
+---
 
 ## Check 3 — Shock switch and outage extremes
 
-**Claim being tested:** the shock system and connectivity machinery respond to
-their controls and nothing fires when disabled.
-
-1. `demand-shocks?` **Off**, everything else at defaults (grid 0.1,
-   severity 1, predictive Off). setup → run ~800 days.
-   **Expected:** "shock active?" reads *false* the whole run; cold-chain
-   referrals grow slowly and smoothly; waste value grows steadily without
-   bursts.
+1. `demand-shocks?` **Off**, defaults otherwise (grid 0.1, severity 1,
+   predictive Off). setup → run ~800 days. Expect "shock active?" *false* all
+   run, and smooth growth in cold-chain referrals and waste.
 2. `demand-shocks?` **On**, `grid-failure-rate` **0.5**. setup → run ~800 days.
-   **Expected:** "% time on paper" climbs toward **75–95%** (with stickiness,
-   clinics are nearly always on paper), "req fill rate" drops noticeably below
-   the step-1 run, "donor bailouts" is often nonzero, and Plot 1 shows long
-   flat shelves in the "recorded" pen (frozen ledger) while the "true" pen
-   keeps falling — the visual signature of your core mechanic.
+   Expect "% time on paper" climbing toward 75–95%, "req fill rate" clearly
+   below the step-1 run, "donor bailouts" often nonzero, and Plot 1 showing
+   long flat shelves in the "recorded" pen (frozen ledger) while the "true"
+   pen keeps falling.
 
-## Check 4 — Calibration benchmark replication (validation against your paper)
+---
+
+## Check 4 — Calibration benchmark replication (validation)
 
 1. All defaults (grid 0.1, severity 1, predictive Off, shocks On).
-2. setup → run to at least day **1000**.
-3. **Expected:** "pub avail % (avg)" settles in the **40–50%** band
-   (benchmark: WHO 2015 figure of 43%), and "pub f-stockout %" in roughly
-   **50–65%** (benchmark: ~50% daily stockout prevalence). Because four
-   aggregated classes cannot reproduce both statistics exactly at once
-   (they are defined on different denominators in the source literature),
-   landing in these bands — with the saw-tooth push cycle visible in Plot 3 —
-   is the honest pass criterion. Record the achieved values in your
-   methodology section.
+2. setup → run to at least day 1000.
+3. Expect "pub avail % (avg)" in the **40–50%** band (benchmark: WHO 2015
+   figure of 43%) and "pub f-stockout %" in roughly **50–65%**.
 
-*If availability sits far above 50%, lower the `cc-push-target` list slightly
-in `setup-parameters` (it is one line, tagged [CALIBRATED]); if far below
-40%, raise it. Each entry ≈ (class daily demand) × (days of coverage);
-13 days of coverage per 30-day cycle produced the target band analytically.*
+**Expect these to be tight, not variable** — see check 5. Landing on ~43%
+almost exactly on every run is the correct behavior, not a bug.
+
+*If availability sits far outside the band, adjust the `cc-push-target` list in
+`setup-parameters` — one line, tagged [CALIBRATED]. Each entry ≈ class daily
+demand × days of coverage; 13 days per 30-day cycle gives 13/30 = 43.3%.*
+
+---
+
+## Check 5 — Confirming stochastic variability is real
+
+Worth running because the calibration monitors look suspiciously stable, and
+you should be able to explain why to a reviewer.
+
+**Why the stable ones are stable.** `pub avail %` is a running average over
+12 clinics × 4 commodity lines × 1,000 days ≈ **48,000 line-days**. By the law
+of large numbers its standard error is a fraction of a percentage point, so it
+converges to the same value every run. On top of that, the mechanism driving
+it is nearly deterministic: push to target every 30 days, deplete at a
+near-constant rate, cross zero around day 13. Randomness averages out almost
+completely. A cumulative average over tens of thousands of events landing on
+the same number each run is exactly what a correctly working stochastic model
+does — the same reason a fair coin flipped 48,000 times always lands near 50%.
+
+**How to confirm the randomness is genuinely there.** Run the model 3 times
+with identical settings (defaults, 1,000 days) and compare these
+*low-aggregation* monitors, which should visibly differ each run:
+
+| Monitor | Expect across runs |
+|---|---|
+| **shock days** (`total-shock-days`) | Large swings — a Poisson-style arrival process with only ~6 events in 3 years. Values of 40 and 90 are both normal. |
+| **donor bailouts** | Often differs, sometimes 0 vs several |
+| **static zero episodes** | Should differ by several percent |
+| **mean RDF capital** | Should differ noticeably |
+
+If those three vary run to run while `pub avail %` stays pinned near 43%, the
+random number generator is working correctly and the stability is a property
+of the *metric*, not of the model.
+
+**One thing that would break it:** do **not** add `random-seed` to `setup`.
+That would make every run identical. The model does not do this, and
+BehaviorSpace assigns independent seeds automatically.
+
+**For your write-up:** report the calibration figures as point values (they are
+stable by construction), and report the four *outcome* metrics as means with
+standard deviations across BehaviorSpace replications, since those are the
+ones with meaningful run-to-run variance.
