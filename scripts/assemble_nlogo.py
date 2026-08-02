@@ -183,7 +183,7 @@ metrics = [
     "ngo-unmet-patients", "ngo-unmet-own", "ngo-unmet-diverted",
     "waste-value-total", "lines-ever-zero",
     "zero-episode-total", "zero-episodes-per-line",
-    "static-zero-episodes", "satellite-zero-episodes", "public-zero-episodes",
+    "static-zero-episodes", "public-zero-episodes",
     "completely-unserved-patients", "coldchain-unserved", "private-rescues",
     "reqs-fulfilled-count", "reqs-partial-count", "reqs-lost-count",
     "requisition-fill-rate", "public-availability-pct",

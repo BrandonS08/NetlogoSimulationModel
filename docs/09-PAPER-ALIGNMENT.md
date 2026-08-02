@@ -142,23 +142,9 @@ error. Three possibilities:
 Until this resolves, describe the calibration as targeting the WHO 2015
 figure, and do **not** cite Kabir et al. for it.
 
-### D2. How much patient volume should satellites carry?
-The paper is emphatic that "frontline fulfillment of patient demand occurs
-overwhelmingly at satellite clinics and other lower-tier endpoints," and SHN
-has ~134 permanent facilities against 9,000–10,000 total clinics. The model
-currently puts only ~33% of NGO patient volume through satellites.
-
-One caution on the 90.8% figure (Sajib et al.): read carefully, it compares
-*satellite clinics plus field medical officers* against *hospital ships* in
-Friendship's three-tier structure — it is not a static-vs-satellite split, so
-it does not license setting satellites to 90.8% directly.
-
-My recommendation: raise satellites to roughly **70%** of NGO patient volume,
-and document each satellite agent as representing a cluster of rotational
-sessions rather than a single site. Tell me a number and I'll set it. This
-matters because satellite consumption reaches the hub's books only at weekly
-restocking — so the more volume sits at satellites, the longer the information
-path, which is your thesis.
+### ~~D2. Satellite patient volume~~ — RESOLVED, and my framing was wrong
+You corrected this: satellites do not take *patients* from the static, they
+take *inventory*. See Part 4 below — the mechanic is rebuilt.
 
 ### D3. Should facility placement be statistically independent?
 Your χ² test (χ² = 2.250, p = 0.134, V = 0.187) establishes that NGO and public
@@ -191,3 +177,97 @@ The honest remaining weaknesses, in order: the manual-record error rate (still
 unsourced), D1 above (a calibration target whose provenance is unclear), and
 the compressed network scale (12 public clinics and 3 statics standing in for
 a national system).
+
+---
+
+## Part 4 — Satellite rollouts rebuilt (and what the price catalogue supplied)
+
+### The correction
+The model treated satellites as standing clinics with their own daily patient
+stream, restocked to fixed targets once a week. That was wrong. Satellites are
+**teams that draw stock from the static, run a mini-clinic at an outlying site
+for a day, and return** — they compete with the static for *inventory*, not for
+patients. Rebuilt accordingly:
+
+- **Rollout days.** Teams depart three days a week (Tue/Wed/Fri), one per
+  satellite agent — nine departures per week per static. Cadence taken from the
+  price/logistics catalogue: ~25 coverage sites per static, each visited 1–2×
+  per month, ~10 teams/week. During a shock a fourth rollout day is added
+  (~×1.33; the catalogue's monsoon factor is ~×1.45).
+- **Commodity mix.** Packs are ESP/MNACH-dominated — vitamins, maternal items,
+  contraceptives, ORS — plus the consumables needed to administer them, and
+  **no C2 at all**, since outreach teams are not retail pharmacies. This was a
+  real error before: satellites were consuming ~10 units/day of RDF retail
+  pharmaceuticals they would never have carried.
+- **Departure and return.** The static's books record the whole pack as issued
+  when the team leaves, and reconcile against actual use when it returns. This
+  is a second latency channel, layered on top of the digital one.
+- **Between rollouts satellites hold nothing**, so they are now excluded from
+  stockout tracking — an empty team is normal, not a stockout. Tracked lines
+  drop from 84 to **57** (12 public CCs × 4, plus 3 statics × 3). Unmet
+  outreach demand is still counted, in `ngo-unmet-own`, where it belongs.
+- **Diverted public patients now route to statics only.** Sending a walk-in to
+  a team that is out in the field on a given day made no sense.
+
+**Pack size and site demand remain assumptions** (45 C1 + 9 C3 packed;
+~30 C1 + ~6 C3 consumed). You told me the catalogue's quantities were
+arbitrary, so I did not use them. These are the two numbers in the satellite
+mechanic with no external basis — flagged accordingly.
+
+### What the price catalogue was used for
+Only prices, and only where they replaced pure assumptions:
+
+| Parameter | Was | Now | Basis |
+|---|---|---|---|
+| C1 unit value (waste pricing) | 5 BDT (assumed) | **11 BDT** | median of the MNACH class |
+| C3 unit cost | 10 BDT (assumed) | **8.5 BDT** | median of the Consumables & Diagnostics class |
+| C3 user fee | 15 BDT (assumed) | **12.5 BDT** | cost × 1.47, matching the C2 margin |
+| Cold-chain dose value | 100 BDT (assumed) | **100 BDT** | MR vaccine price — the assumption was right |
+
+C2 cost/retail (15/22) were left alone: those came from your specification
+document, which is authoritative for numeric parameters.
+
+Nothing behavioural was taken from the catalogue. Its demand rates, stock
+levels, patient volumes and flood multipliers are all untouched.
+
+---
+
+## Part 5 — Things in the catalogue I'd like permission to use
+
+You offered, so here are the four worth asking about, most useful first.
+
+1. **Flood demand multipliers.** The catalogue models a post-flood window of
+   roughly 0–30 days with per-item demand multipliers reaching 10–25× for
+   flood-sensitive items (IV fluids, ORS, anti-venom), rather than a flat
+   uplift. The model currently applies a single ×1.8 to everything, from your
+   spec document. A shock that hits *some* commodity classes hard and others
+   barely is both more realistic and more interesting for your question, since
+   it stresses exactly the classes with the longest information paths. **May I
+   apply class-differentiated shock multipliers** — say C1 and C3 strongly
+   affected, C2 moderately — rather than one flat number? If yes, I'd also want
+   to know whether ×1.8 or the catalogue's steeper range should govern.
+
+2. **Cold-chain / temperature sensitivity flags.** The catalogue marks items as
+   `coldChain`, `tempSensitive` and `highTempSensitive`. The model applies
+   cold-chain spoilage only to the public P3 class; NGO C1 contains vaccines
+   (you mentioned satellites carrying them) and heat-sensitive items with no
+   spoilage acceleration during outages. **May I extend outage-accelerated
+   spoilage to the vaccine/heat-sensitive share of C1?** This would let power
+   failures damage NGO stock, not just delay NGO information — a second
+   physical consequence of the same environmental shock.
+
+3. **Two-clinic rural/urban contrast.** The catalogue distinguishes a rural
+   site from an urban one with markedly different patient volumes and starting
+   stock. Your paper's §2.1 makes a great deal of uneven distribution, and
+   Section I says "a series of closed-ecosystem models" — plural. **Should the
+   statics be differentiated into rural and urban profiles** rather than three
+   identical clinics? This is the change I am least sure you want, since it
+   adds a dimension to every result table.
+
+4. **Patient volumes for NGO statics.** The catalogue gives daily patient
+   ranges per static clinic. The model instead uses per-class demand means from
+   your spec document. These may disagree. **Do you want me to check them
+   against each other**, and if they conflict, which wins?
+
+Answer any subset — each is independent, and the model is complete and runnable
+without all four.

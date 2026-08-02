@@ -81,9 +81,9 @@ ngo-statics-own [
 ]
 
 ngo-satellites-own [
-  parent-hub          ;; the ngo-static this satellite depends on
-  stock-on-hand       ;; list of 3: C1..C3 (all finances flow through parent-hub)
-  zero-flags zero-episodes ever-zero
+  parent-hub          ;; the ngo-static this team draws stock from and reports to
+  stock-on-hand       ;; list of 3: what the team is carrying TODAY (empty between
+                      ;; rollouts). All finances flow through parent-hub.
 ]
 
 private-shops-own [
@@ -132,7 +132,8 @@ globals [
   warehouse-replenish-interval warehouse-replenish-amount
   public-push-interval public-channel-replenish smc-c1-replenish
   ngo-class1-push-amount
-  satellite-stock-targets private-shop-base-stock
+  satellite-pack-size satellite-site-demand private-shop-base-stock
+  rollout-days shock-extra-rollout-day
 
   ;; ---- information / procurement timing ----
   fallback-recovery-lag local-procurement-lag reporting-error-rate
@@ -207,10 +208,14 @@ to setup-parameters
   ;; ---- economics, BDT ----
   set class2-unit-cost      15     ;; [SPEC]
   set class2-retail-price   22     ;; [SPEC] RDF margin ~47%
-  set class3-unit-cost      10     ;; [ASSUMPTION] local wholesale reagent/consumable unit cost
-  set class3-retail-price   15     ;; [ASSUMPTION] diagnostics user-fee (RDF cost recovery)
-  set class1-unit-value     5      ;; [ASSUMPTION] accounting value of donated C1 units (waste pricing)
-  set p3-unit-value         100    ;; [ASSUMPTION] accounting value of one vaccine/cold-chain dose
+  ;; C3 and C1 unit values below come from the commodity price catalogue in the
+  ;; author's inventory proof-of-concept (median per-unit BDT within each class),
+  ;; which is a price reference only — none of its behavioural parameters are used.
+  set class3-unit-cost      8.5    ;; [CATALOGUE] median Consumables & Diagnostics unit price
+  set class3-retail-price   12.5   ;; [ASSUMPTION] cost x ~1.47, matching the C2 RDF margin
+  set class1-unit-value     11     ;; [CATALOGUE] median MNACH/ESP unit price (waste pricing only)
+  set p3-unit-value         100    ;; [CATALOGUE] MR vaccine unit price — corroborates the
+                                   ;; value previously assumed for one cold-chain dose
   set c-unit-values         (list class1-unit-value class2-unit-cost class3-unit-cost)
   set daily-operating-cost  0      ;; [PAPER 2.2.3.1] The RDF is strictly ring-fenced: "all
                                    ;; earned capital must be rolled over and strictly contained
@@ -231,7 +236,20 @@ to setup-parameters
   set public-channel-replenish (list 950 3400 650 1300)  ;; [CALIBRATED] ~= 12 CCs x push target + 5%
   set smc-c1-replenish        5000                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
   set ngo-class1-push-amount  1600                    ;; [CALIBRATED] was 800; see docs/06-CHANGELOG.md
-  set satellite-stock-targets (list 40 80 30)         ;; [SPEC + ASSUMPTION for C3]
+  ;; ---- satellite outreach rollouts ----
+  ;; Satellites do NOT compete with the static for patients; they DRAW STOCK from
+  ;; it and run a mini-clinic at an outlying site for a day. What matters for this
+  ;; model is that inventory leaves the static's shelf and is consumed off-site.
+  ;; Cadence [CATALOGUE]: ~25 coverage sites per static, each visited 1-2x/month,
+  ;; teams departing ~10x/week. Here 3 satellite agents x 3 rollout days = 9/week.
+  set rollout-days (list 2 3 5)     ;; Tue / Wed / Fri within each 7-day cycle
+  set shock-extra-rollout-day 0     ;; monsoon adds a 4th rollout day (~x1.33 frequency;
+                                    ;; the catalogue's monsoon factor is ~x1.45)
+  ;; Outreach commodity mix is overwhelmingly ESP/MNACH — vitamins, maternal items,
+  ;; contraceptives, ORS — plus the consumables needed to administer them. Teams
+  ;; are not retail pharmacies, so they carry NO C2.
+  set satellite-pack-size   (list 45 0 9)   ;; [ASSUMPTION] units packed per team per rollout
+  set satellite-site-demand (list 30 0 6)   ;; [ASSUMPTION] mean units consumed at a site
   set private-shop-base-stock (list 100 600 200)      ;; [SPEC]
 
   ;; ---- information & procurement timing (days) ----
@@ -436,10 +454,7 @@ to setup-ngo-network
       if spot != nobody [ move-to spot ]
       create-link-from my-hub [ set color green - 2 set thickness 0.2 ]
 
-      set stock-on-hand (list 150 250 40)
-      set zero-flags    (list false false false)
-      set zero-episodes (list 0 0 0)
-      set ever-zero     (list false false false)
+      set stock-on-hand (list 0 0 0)   ;; empty between rollouts: teams carry stock, they don't hold it
     ]
   ]
 end
@@ -469,7 +484,7 @@ to go
 
   process-public-demand
   process-ngo-static-demand
-  process-ngo-satellite-demand
+  run-satellite-rollouts
   track-zero-stock
 
   update-ledger-visibility
@@ -615,7 +630,7 @@ to divert-public-patient [ patient-count p-idx ]   ;; runs as a public-cc
     [ ;; P3 cold chain: no NGO or private substitute exists — refer upward
       set coldchain-unserved (coldchain-unserved + patient-count) ]
     [ let remaining patient-count
-      let nearest-ngo min-one-of (turtle-set ngo-statics ngo-satellites) [ distance myself ]
+      let nearest-ngo min-one-of ngo-statics [ distance myself ]
       if nearest-ngo != nobody [
         ask nearest-ngo [ set remaining (serve-from-stock c-idx remaining) ]
       ]
@@ -712,27 +727,82 @@ to process-ngo-static-demand
   ]
 end
 
-to process-ngo-satellite-demand
+;; ---------------------------------------------------------------------------
+;; SATELLITE OUTREACH ROLLOUTS
+;;
+;; A satellite is not a standing clinic with its own patient stream competing
+;; with the static. It is a team that, on rollout days, LOADS STOCK FROM THE
+;; STATIC, travels to an outlying site, runs a mini-clinic for the day, and
+;; brings the remainder back. The mechanism that matters here is that inventory
+;; leaves the static's shelf and is consumed off-site.
+;;
+;; This is also a latency amplifier, which is why it belongs in this model: the
+;; static's books show the whole pack issued at departure, and only reconcile
+;; against what was actually used when the team returns.
+;; ---------------------------------------------------------------------------
+
+to-report rollout-day?
+  let day (ticks mod 7)
+  if member? day rollout-days [ report true ]
+  ;; monsoon conditions push more teams into the field
+  report (shock-active? and (day = shock-extra-rollout-day))
+end
+
+to run-satellite-rollouts
+  if not rollout-day? [ stop ]
   ask ngo-satellites [
+    ;; --- load out from the parent static ---
+    let loaded (list 0 0 0)
+    let hub parent-hub
+    (foreach (list 0 1 2) satellite-pack-size [ [ c-idx want ] ->
+      if want > 0 [
+        let taken 0
+        ask hub [
+          let avail (item c-idx stock-on-hand)
+          set taken min (list avail want)
+          if taken > 0 [
+            set stock-on-hand replace-item c-idx stock-on-hand (avail - taken)
+            ;; the static books the whole pack as issued the moment it departs
+            note-facility-flow c-idx want taken
+          ]
+        ]
+        set loaded replace-item c-idx loaded taken
+      ]
+    ])
+    set stock-on-hand loaded
+
+    ;; --- run the mini-clinic for the day ---
     let m shock-multiplier
-    let needs (list
-      (max (list 0 (round ((random-normal 5 2) * m))))
-      (max (list 0 (round ((random-normal 10 3) * m))))
-      (max (list 0 (round ((random-normal 2 1) * m)))))
-    (foreach (list 0 1 2) needs [ [ c-idx need ] ->
-      if need > 0 [
-        let unfilled (serve-from-stock c-idx need)
-        ;; unmet C2 patients walk to the parent static hub the same day
-        if (unfilled > 0) and (c-idx = 1) [
-          ask parent-hub [ set unfilled (serve-from-stock c-idx unfilled) ]
+    (foreach (list 0 1 2) satellite-site-demand [ [ c-idx mean-need ] ->
+      if mean-need > 0 [
+        let need max (list 0 (round ((random-normal mean-need (mean-need / 4)) * m)))
+        if need > 0 [
+          let unfilled (serve-from-stock c-idx need)
+          if unfilled > 0 [
+            ;; an outreach site has no pharmacy next door: unmet need at a
+            ;; rollout is simply unmet, and the patient is not counted as
+            ;; rescued by the private market
+            set ngo-unmet-patients (ngo-unmet-patients + unfilled)
+            set ngo-unmet-own (ngo-unmet-own + unfilled)
+            set completely-unserved-patients (completely-unserved-patients + unfilled)
+          ]
         ]
-        if unfilled > 0 [
-          set ngo-unmet-patients (ngo-unmet-patients + unfilled)
-          set ngo-unmet-own (ngo-unmet-own + unfilled)
-          let still-unserved (send-to-private unfilled c-idx)
-          if still-unserved > 0 [
-            set completely-unserved-patients (completely-unserved-patients + still-unserved) ]
+      ]
+    ])
+
+    ;; --- return the remainder to the static ---
+    (foreach (list 0 1 2) [ c-idx ->
+      let left (item c-idx stock-on-hand)
+      if left > 0 [
+        ask hub [
+          set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + left)
+          ;; the return credit reverses the over-issue booked at departure
+          set requested-today replace-item c-idx requested-today
+              (max (list 0 ((item c-idx requested-today) - left)))
+          set dispensed-today replace-item c-idx dispensed-today
+              (max (list 0 ((item c-idx dispensed-today) - left)))
         ]
+        set stock-on-hand replace-item c-idx stock-on-hand 0
       ]
     ])
   ]
@@ -744,8 +814,12 @@ end
 ;; line goes from positive stock to zero (checked once daily, after demand).
 ;; ============================================================================
 
+;; Satellites are deliberately EXCLUDED: they hold nothing between rollouts, so
+;; an empty satellite is normal operation, not a stockout. Their supply failures
+;; are captured where they belong — as unmet outreach patients in ngo-unmet-own.
+;; Tracked lines: (12 public CCs x 4 classes) + (3 statics x 3 classes) = 57.
 to track-zero-stock
-  ask (turtle-set public-ccs ngo-statics ngo-satellites) [ update-zero-tracking ]
+  ask (turtle-set public-ccs ngo-statics) [ update-zero-tracking ]
 end
 
 to update-zero-tracking   ;; runs as any facility
@@ -1062,11 +1136,8 @@ to run-replenishment-cycles
     run-ngo-c1-push
   ]
 
-  ;; weekly: satellite restocking pull + private-market restock
-  if (ticks > 0) and ((ticks mod 7) = 0) [
-    resupply-ngo-satellites
-    restock-private-shops
-  ]
+  ;; weekly private-market restock (satellite rollouts run in the demand phase)
+  if (ticks > 0) and ((ticks mod 7) = 0) [ restock-private-shops ]
 end
 
 to-report push-need [ p-idx ]   ;; runs as a public-cc
@@ -1110,25 +1181,6 @@ to run-ngo-c1-push
   ]
 end
 
-to resupply-ngo-satellites
-  ask ngo-satellites [
-    let hub parent-hub
-    (foreach (list 0 1 2) satellite-stock-targets [ [ c-idx target ] ->
-      let need max (list 0 (target - (item c-idx stock-on-hand)))
-      let hub-avail [ item c-idx stock-on-hand ] of hub
-      let pull min (list need hub-avail)
-      if pull > 0 [
-        ask hub [
-          set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) - pull)
-          ;; transfers count as demand on the hub so forecasts see total offtake
-          note-facility-flow c-idx pull pull
-        ]
-        set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + pull)
-      ]
-    ])
-  ]
-end
-
 to restock-private-shops
   ;; deep informal wholesale market assumption: shops fully restock weekly
   ask private-shops [ set stock-on-hand private-shop-base-stock ]
@@ -1149,34 +1201,30 @@ end
 
 ;; ---- outcome metrics 3 & 4 ----
 to-report lines-ever-zero
-  report sum [ length filter [ b -> b ] ever-zero ] of (turtle-set public-ccs ngo-statics ngo-satellites)
+  report sum [ length filter [ b -> b ] ever-zero ] of (turtle-set public-ccs ngo-statics)
 end
 
 to-report zero-episode-total
-  report sum [ sum zero-episodes ] of (turtle-set public-ccs ngo-statics ngo-satellites)
+  report sum [ sum zero-episodes ] of (turtle-set public-ccs ngo-statics)
 end
 
 to-report zero-episodes-per-line
-  let n sum [ length zero-episodes ] of (turtle-set public-ccs ngo-statics ngo-satellites)
+  let n sum [ length zero-episodes ] of (turtle-set public-ccs ngo-statics)
   ifelse n > 0 [ report (zero-episode-total / n) ] [ report 0 ]
 end
 
 to-report ngo-zero-episodes [ c-idx ]
-  report sum [ item c-idx zero-episodes ] of (turtle-set ngo-statics ngo-satellites)
+  report sum [ item c-idx zero-episodes ] of ngo-statics
 end
 
 ;; Decomposition of outcome metric 4 by facility type.  The headline total is
-;; dominated by public CCs (rigid 30-day push, no information mechanics at all)
-;; and by satellites (fixed weekly restock targets), NEITHER of which can
-;; respond to the latency or predictive settings.  Only the statics carry the
+;; dominated by the 48 public-clinic lines, which run on a rigid 30-day push
+;; with no information mechanics at all and therefore CANNOT respond to the
+;; latency or predictive settings.  Only the 9 static lines carry the
 ;; information layer, so STATIC-ZERO-EPISODES is where a treatment effect can
 ;; actually appear.  (docs/05 check 2)
 to-report static-zero-episodes
   report sum [ sum zero-episodes ] of ngo-statics
-end
-
-to-report satellite-zero-episodes
-  report sum [ sum zero-episodes ] of ngo-satellites
 end
 
 to-report public-zero-episodes
