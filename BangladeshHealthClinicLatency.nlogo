@@ -175,6 +175,8 @@ globals [
   requisition-log               ;; list of per-requisition outcome rows (gap 4)
   donor-bailouts-total
   avail-line-days total-line-days          ;; running public availability accounting
+  static-stockout-line-days static-line-days   ;; same, for NGO static commodity lines
+  ngo-waste-value ngo-goods-received-value     ;; waste vs goods-in, for the <2% standard
   facility-stockout-days facility-days     ;; running facility-level stockout accounting
   paper-days-cum                           ;; clinic-days spent on paper fallback
 ]
@@ -262,12 +264,26 @@ to setup-parameters
                                      ;; connection", digitising at "end-of-week or even end-of-month
                                      ;; batch logging". End-of-week = 7 days (was 3).
   set local-procurement-lag   2      ;; [ASSUMPTION] local wholesaler delivery time for C3
-  set reporting-error-rate    0.08   ;; [ASSUMPTION] share of paper-recorded flow mis-captured.
-                                     ;; Still unsourced. For contrast, the paper gives a DIGITAL
-                                     ;; error rate after OpenMRS of 200 per 250,000 entries
-                                     ;; (0.08%) — which is why digital-mode error is modelled as
-                                     ;; zero. Manual error is ~2 orders of magnitude larger here;
-                                     ;; the magnitude is the assumption, the direction is not.
+  set reporting-error-rate    0.217  ;; [LIT: Bekele et al. 2025, PLOS Glob Public Health,
+                                     ;; Jimma Zone, Ethiopia] Mean accuracy of MANUAL bin-card
+                                     ;; records against physical count was 78.3%, i.e. a 21.7%
+                                     ;; discrepancy rate (per-item range 60%-95% accuracy).
+                                     ;; Interpretation used here: 21.7% of stock movement handled
+                                     ;; on paper fails to reach the record correctly. That is an
+                                     ;; interpretive step — the source reports the share of
+                                     ;; RECORDS that disagree, not the share of UNITS mis-posted —
+                                     ;; and it is stated as such in docs/04.
+                                     ;; Two reasons this is conservative: (a) Bekele's facilities
+                                     ;; use bin cards as their ROUTINE system, whereas here paper
+                                     ;; is an emergency fallback, and Larsen et al. 2019 found
+                                     ;; emergency downtime paper records "significantly
+                                     ;; fragmented", with "not all documentation completed";
+                                     ;; (b) the POSITIVE bias is directly evidenced — Bekele found
+                                     ;; "losses and adjustments" filled in only 35% of records,
+                                     ;; the least-recorded data component of all, so unrecorded
+                                     ;; depletion systematically overstates remaining stock.
+                                     ;; Digital-mode error is modelled as zero, justified by the
+                                     ;; post-OpenMRS rate of 200 per 250,000 entries (0.08%).
   set forecast-window-days    14     ;; [ASSUMPTION] trailing window for demand forecasting
   set demand-history-days     30     ;; [PAPER 2.2.3.1] monthly consumption data drives ordering
   ;; WARM START for Average Monthly Consumption. A clinic's real throughput is
@@ -372,6 +388,10 @@ to setup-parameters
   set donor-bailouts-total 0
   set avail-line-days 0
   set total-line-days 0
+  set static-stockout-line-days 0
+  set static-line-days 0
+  set ngo-waste-value 0
+  set ngo-goods-received-value 0
   set facility-stockout-days 0
   set facility-days 0
   set paper-days-cum 0
@@ -638,6 +658,7 @@ to apply-physical-spoilage-and-shrinkage
         set stock-on-hand replace-item c-idx stock-on-hand (max (list 0 ((item c-idx stock-on-hand) - loss)))
         set total-expired-units (total-expired-units + loss)
         set waste-value-total (waste-value-total + (loss * (item c-idx c-unit-values)))
+        set ngo-waste-value (ngo-waste-value + (loss * (item c-idx c-unit-values)))
       ]
     ])
   ]
@@ -1154,6 +1175,7 @@ to process-pending-requisitions
             set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + shipped)
             set rdf-capital (rdf-capital - (shipped * cost-per))
           ]
+          set ngo-goods-received-value (ngo-goods-received-value + (shipped * cost-per))
           ifelse shipped = qty
             [ set order-status "fulfilled"
               set reqs-fulfilled-count (reqs-fulfilled-count + 1) ]
@@ -1240,6 +1262,8 @@ to run-ngo-c1-push
   if grant > 0 [
     ask ngo-statics [
       set stock-on-hand replace-item 0 stock-on-hand ((item 0 stock-on-hand) + grant) ]
+    set ngo-goods-received-value (ngo-goods-received-value
+        + (grant * (count ngo-statics) * class1-unit-value))
     ask hub [ set smc-c1-stock max (list 0 (smc-c1-stock - (grant * (count ngo-statics)))) ]
   ]
 end
@@ -1260,6 +1284,9 @@ to update-running-metrics
       + (count public-ccs with [ not empty? filter [ s -> s <= 0 ] stock-on-hand ]))
   set facility-days (facility-days + (count public-ccs))
   set paper-days-cum (paper-days-cum + (count ngo-statics with [ manual-fallback? ]))
+  set static-stockout-line-days (static-stockout-line-days
+      + (sum [ length filter [ v -> v <= 0 ] stock-on-hand ] of ngo-statics))
+  set static-line-days (static-line-days + (3 * (count ngo-statics)))
 end
 
 ;; ---- outcome metrics 3 & 4 ----
@@ -1325,6 +1352,26 @@ end
 ;; never on stock levels, order timing or the predictive toggle.  Use this,
 ;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
 ;; untouched while improving reorder TIMING.  (docs/05 check 2)
+;; ---- validation reporters against published benchmarks ----
+
+;; Share of NGO static commodity-line-days sitting at zero stock.
+;; Comparator: Bekele et al. 2025 report an average daily stock-out of 8.33%
+;; across essential medicines in functioning public facilities using bin-card
+;; management. NGO statics should land in that neighbourhood — far better than
+;; the ~55% facility-stockout rate of Bangladeshi Community Clinics, but not
+;; near zero.
+to-report ngo-static-stockout-pct
+  report 100 * static-stockout-line-days / (max (list 1 static-line-days))
+end
+
+;; Value of expired/wasted stock as a percentage of the value of all goods the
+;; NGO network has taken in. Comparator: the USAID/DELIVER-derived standard
+;; applied by Bekele et al. is that unusable items should be <2% of total item
+;; value.
+to-report waste-pct-of-value
+  report 100 * ngo-waste-value / (max (list 1 ngo-goods-received-value))
+end
+
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
 end
@@ -1640,6 +1687,28 @@ MONITOR
 432
 195
 477
+NGO stockout %
+ngo-static-stockout-pct
+1
+1
+11
+
+MONITOR
+10
+480
+100
+525
+waste % of value
+waste-pct-of-value
+2
+1
+11
+
+MONITOR
+103
+480
+195
+525
 ledger age (days)
 mean-ledger-age-days
 2
@@ -1648,9 +1717,9 @@ mean-ledger-age-days
 
 MONITOR
 10
-480
+528
 100
-525
+573
 static zero eps
 static-zero-episodes
 0
@@ -1659,9 +1728,9 @@ static-zero-episodes
 
 MONITOR
 103
-480
+528
 195
-525
+573
 C2 ledger gap
 mean-ledger-gap-c2
 1
@@ -1670,9 +1739,9 @@ mean-ledger-gap-c2
 
 MONITOR
 10
-528
+576
 100
-573
+621
 % time on paper
 pct-time-on-paper
 1
@@ -1681,9 +1750,9 @@ pct-time-on-paper
 
 MONITOR
 103
-528
+576
 195
-573
+621
 shock days
 total-shock-days
 0
@@ -1692,9 +1761,9 @@ total-shock-days
 
 MONITOR
 10
-576
+624
 100
-621
+669
 req fill rate
 requisition-fill-rate
 2
@@ -1703,33 +1772,11 @@ requisition-fill-rate
 
 MONITOR
 103
-576
+624
 195
-621
+669
 mean RDF capital
 mean-rdf-capital
-0
-1
-11
-
-MONITOR
-10
-624
-100
-669
-unverified takings
-mean-unverified-revenue
-0
-1
-11
-
-MONITOR
-103
-624
-195
-669
-donor bailouts
-donor-bailouts-total
 0
 1
 11
@@ -1739,6 +1786,28 @@ MONITOR
 672
 100
 717
+unverified takings
+mean-unverified-revenue
+0
+1
+11
+
+MONITOR
+103
+672
+195
+717
+donor bailouts
+donor-bailouts-total
+0
+1
+11
+
+MONITOR
+10
+720
+100
+765
 shock active?
 shock-active?
 0
@@ -1898,6 +1967,8 @@ NetLogo 6.4.0
     <metric>requisition-fill-rate</metric>
     <metric>public-availability-pct</metric>
     <metric>public-facility-stockout-pct</metric>
+    <metric>ngo-static-stockout-pct</metric>
+    <metric>waste-pct-of-value</metric>
     <metric>pct-time-on-paper</metric>
     <metric>mean-ledger-age-days</metric>
     <metric>mean-ledger-gap-c2</metric>

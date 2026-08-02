@@ -176,3 +176,31 @@ BehaviorSpace assigns independent seeds automatically.
 stable by construction), and report the four *outcome* metrics as means with
 standard deviations across BehaviorSpace replications, since those are the
 ones with meaningful run-to-run variance.
+
+---
+
+## Check 6 — The two independent validation benchmarks (added with the Bekele source)
+
+Unlike check 4, **nothing in the model was tuned to hit these**. They are
+predictions, which makes them real validation rather than a consistency check.
+
+1. Defaults (grid 0.1, severity 1, predictive Off, shocks On). setup → run to
+   day 90.
+2. Read two monitors:
+
+| Monitor | Expected | Benchmark |
+|---|---|---|
+| `NGO stockout %` | roughly **5–15%** | Bekele et al. 2025: average daily stock-out of 8.33% in functioning facilities using bin-card management |
+| `waste % of value` | roughly **0.5–3%** | USAID/DELIVER standard: unusable items should be <2% of total item value |
+
+**How to read the result honestly.** Landing inside both ranges is meaningful
+external validation and should be reported. Landing outside is *not
+necessarily* a failure — Bekele's facilities are Ethiopian public hospitals and
+health centres, not Bangladeshi NGO clinics, so a systematic difference is
+plausible and can be discussed. What matters is that you report the achieved
+value either way, and do not quietly retune the model to hit a number it was
+never fitted to.
+
+If `NGO stockout %` comes out near zero, that is worth investigating — it would
+suggest the statics are over-supplied and the latency mechanism has nothing to
+bite on.

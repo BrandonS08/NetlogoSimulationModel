@@ -220,3 +220,117 @@ The two things that would genuinely weaken you are: presenting a fitted
 parameter as a measured one, and presenting an unrun model's predicted
 behaviour as an observed result. Both are entirely avoidable, and both are
 avoided by finishing Tier 0 and being precise in your write-up about item 3.
+
+---
+
+# ADDENDUM — Two papers supplied, and what they changed
+
+Two sources were provided after this document was written:
+
+- **Bekele A. et al. (2025).** *Inventory management performance of essential
+  medicines in public health facilities of Jimma Zone, Southwest Ethiopia.*
+  PLOS Global Public Health 5(4): e0004379.
+- **Larsen E. et al. (2019).** *Continuing Patient Care during Electronic
+  Health Record Downtime.* Applied Clinical Informatics 10(3): 495–504.
+
+Between them they resolve **Tier 1 item #1** — the weakest number in the model.
+
+## The manual-record error rate is now sourced
+
+Bekele et al. physically counted stock at 20 public health facilities and
+compared it against the manual bin-card records. **Mean bin-card accuracy was
+78.3%** — a **21.7% discrepancy rate** — with per-item accuracy ranging from
+60% (Doxycycline 100mg) to 95% (Tetracycline eye ointment). Report-transfer
+accuracy from bin card to resupply form was separately 87.37%.
+
+`reporting-error-rate` changes from **0.08 (my guess) → 0.217 (measured)**.
+
+**The interpretive step, stated plainly:** Bekele reports the share of
+*records* that disagree with a physical count; the model needs the share of
+*units* mis-posted. Treating one as the other is an assumption, and it is now
+documented as such in the code comment and in `04-ASSUMPTIONS-AND-LIMITATIONS`.
+It is a far better-founded assumption than a number with no source, but it is
+not a measurement of the quantity the model actually uses. Say so in your
+methodology.
+
+**Two reasons the new value is conservative:**
+
+1. Bekele's facilities use bin cards as their **routine** system. In this
+   model paper is an **emergency fallback**, and Larsen et al. found that
+   emergency downtime paper records were *"significantly fragmented"* with
+   *"not all documentation completed"* — worse conditions than routine
+   bin-card keeping.
+2. The **positive bias is now directly evidenced**, not assumed. Bekele found
+   *"losses and adjustments"* filled in only **35%** of records — the
+   least-completed data component of all (vs. stock-on-hand and consumption at
+   100%). Unrecorded depletion is exactly what makes a system believe more
+   stock remains than truly does, which is the direction the model implements.
+
+What this means in practice, at the corrected demand scale:
+
+| Severity | 7 days on paper | 14 days on paper |
+|---|---|---|
+| 1 | C2 ledger overstated by ~153 units (5% of stock) | ~307 (10%) |
+| 2 | ~307 (10%) | ~613 (20%) |
+| 3 | ~460 (15%) | ~920 (31%) |
+
+C2 safety stock is 720, so at high severity a long outage can push the believed
+figure far enough above reality to **suppress a reorder entirely**. That is the
+pathology your paper describes, now driven by a measured parameter.
+
+## Two new validation benchmarks (this is the bigger win)
+
+Before these papers the model had **exactly one** external validation target —
+the 43% availability figure, which is Bangladesh-public-sector-specific and
+whose citation you still owe me. Bekele supplies two more, and crucially they
+constrain the **NGO side**, which previously had no external check at all.
+
+| New monitor | Benchmark | Source |
+|---|---|---|
+| `ngo-static-stockout-pct` | **~8.33%** of commodity-line-days stocked out | Bekele: average daily stock-out across essential medicines in functioning facilities using bin-card management |
+| `waste-pct-of-value` | **<2%** of total item value | USAID/DELIVER standard for unusable items, applied by Bekele |
+
+Both are now Interface monitors and BehaviorSpace metrics. **Check 6 in
+`05-VERIFICATION-CHECKS.md` covers them.** A model that reproduces three
+independent published benchmarks — public availability, NGO stockout rate, and
+waste fraction — is in a substantially stronger position than one that
+reproduces a single number it was tuned to hit.
+
+Note the honest asymmetry: the 43% figure is a *calibration target* (I tuned
+push quotas to hit it). These two are *predictions* — nothing was tuned to
+reach them. If the model lands near them anyway, that is genuine validation and
+worth saying so explicitly in your write-up.
+
+## Corroboration that changed nothing (but is citable)
+
+- **Larsen et al.** describe a total downtime of ~48 hours followed by ~48
+  hours of partial restoration as systems came back incrementally — a
+  **staged, multi-day recovery**, which is what the model's outage-plus-sticky-
+  recovery structure represents. Your own paper's "end-of-week or even
+  end-of-month batch logging" remains the basis for the 7-day value; Larsen
+  corroborates that recovery is not instantaneous.
+- **Larsen et al.** also found service delays during downtime averaging +62%
+  turnaround time, with interviewees reporting the true figure was much larger
+  than the paper records showed — i.e. *the downtime records themselves
+  understate downtime harm.* Worth one sentence in your discussion: real-world
+  measurement of this phenomenon is biased downward by the same information
+  failure being studied.
+- **Bekele's stock-out causes** map onto the model's failure modes almost
+  one-to-one: insufficient supply 55% (channel rationing), stock-out at the
+  resupply point 40% (partial/lost requisitions), expiration 35% (spoilage),
+  order modification at replenishment 30% (rationed partial fulfilment). The
+  model generates all four without being built to.
+
+## What these papers do NOT resolve
+
+- **Satellite pack size and site consumption** (Tier 1 #2) — still my numbers.
+  Neither paper covers outreach logistics. Patients-per-session is still the
+  single most valuable figure you could bring me.
+- **The 43% citation** (Tier 1 #3) — still outstanding, still must not be
+  attributed to Kabir et al.
+- **Emergency ordering.** Bekele found all facilities placed emergency orders
+  in six months, 45% of them more than five. The model has no emergency-order
+  path — a clinic that discovers a shortfall waits for the normal cycle. This
+  is now a *named gap* rather than an oversight; adding it would be a genuine
+  extension, and it would likely *reduce* modelled stockouts.
+- **Cold-chain storage loss rate** — neither paper covers it.
