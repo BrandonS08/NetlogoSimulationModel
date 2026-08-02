@@ -89,6 +89,15 @@ message. Silence means it compiled cleanly. That's it — you're done with code.
 of the message and send it to me. One error message is a normal, fixable
 thing; it is not a sign that anything is broken.
 
+### Step 3b — Save right now (Ctrl+S / Cmd+S)
+
+The code you just pasted only exists in memory until you save. Press
+**Ctrl+S** (**Cmd+S** on Mac) before doing anything else.
+
+Rule of thumb for the rest of this document: **any time you finish a step that
+took effort, press Ctrl+S.** NetLogo does not autosave, and everything you
+build — code, widgets, experiments — lives inside the model file.
+
 ---
 
 ## Step 4 — Quick confidence check (2 minutes)
@@ -298,6 +307,47 @@ Work down this list, in order. Stop as soon as one works.
    the model file on disk is untouched by a hung window. Then check
    **Tools → BehaviorSpace**: if the experiment is listed, you saved it and
    nothing was lost. If the list is empty, redo Step 5 and save with Ctrl+S.
+
+### "NetLogo is frozen — the menus don't respond and it won't even quit"
+
+If clicking Quit flashes something briefly and dumps you back where you were,
+there is an **invisible modal dialog** sitting off-screen. NetLogo is waiting
+for you to answer a question you cannot see, so it refuses to open menus and
+refuses to quit. This is a known Java/NetLogo behavior after a display or
+resolution change, and it is not damage.
+
+**First, try to answer the invisible dialog** (30 seconds — if this works you
+keep your unsaved work):
+
+1. Click once on the NetLogo window, then press **Escape**. Try the menus.
+2. Still stuck? Press **Enter**. Try the menus.
+3. Still stuck? Press **Alt+Tab** (Windows) or **Cmd+Tab** (Mac) until you
+   land on a NetLogo window that isn't the main one, then — on Windows —
+   press **Win+Left arrow** to snap it back onto your visible screen. On Mac,
+   check the **Window** menu for a listed window you can't see.
+
+**If the menus respond after any of those:** immediately press **Ctrl+S** to
+save, then carry on.
+
+**If none of that works, force-quit.** This is safe. Force-quitting cannot
+corrupt or delete your `.nlogo` files — they are sitting on your hard drive
+untouched. The only thing lost is work since your last save.
+
+- **Windows:** press **Ctrl+Shift+Esc** to open Task Manager. Find
+  **NetLogo** in the list (it may show as `NetLogo 7.0.4` or as
+  `Java(TM) Platform SE binary`). Click it once, then click **End task**.
+- **Mac:** press **Cmd+Option+Esc** to open Force Quit Applications. Select
+  **NetLogo**, click **Force Quit**, confirm.
+
+Then reopen `clinic-model-WORKING.nlogo` and check what survived:
+
+| Check | If present | If missing |
+|---|---|---|
+| **Code** tab starts with `;; BANGLADESH HEALTH CLINIC...HARDENED BUILD v2` | Code survived | Redo Steps 1–2, then **Ctrl+S** |
+| **Tools → BehaviorSpace** lists `latency-experiment` | Experiment survived | Redo Step 5, then **Ctrl+S** |
+
+Worst case this is about five minutes of redoing. Save after each step this
+time and it will not happen again.
 
 ### "The run started but I can't tell if it's working"
 
