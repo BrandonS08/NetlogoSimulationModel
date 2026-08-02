@@ -166,9 +166,58 @@ window.
 
 ---
 
+## Step 5b — SAVE IMMEDIATELY (this is the step people lose work on)
+
+**BehaviorSpace experiments are stored inside your model file, not in NetLogo
+itself.** Until you save the model, the experiment exists only in memory. If
+NetLogo closes, restarts, or is force-quit, the experiment disappears and it
+looks like it was never there.
+
+1. Close the BehaviorSpace window (click the X on it, or the **Close**
+   button — *not* Delete).
+2. Press **Ctrl+S** (**Cmd+S** on Mac).
+
+✅ **Check it worked:** click **Tools → BehaviorSpace** again.
+`latency-experiment` should still be listed. It is now saved permanently and
+will be there every time you open this model file.
+
+---
+
+## Step 5c — Do a 2-minute pilot run before the real one
+
+Don't commit to a 45-minute run before knowing the whole pipeline produces a
+file. This makes a tiny throwaway version first.
+
+1. **Tools → BehaviorSpace**, select `latency-experiment`, click
+   **Duplicate**.
+2. In the copy, change the **Experiment name** to `pilot`.
+3. Change **Repetitions** to `1`.
+4. In the **Vary variables** box, replace the four lines with just these two:
+
+```
+["info-latency-severity" 0 3]
+["predictive-modeling?" true false]
+```
+
+5. Change **Time limit** to `200`.
+6. Click **OK**, then press **Ctrl+S** to save again.
+7. Select `pilot`, click **Run**, choose **Table output**, save it as
+   `pilot-test.csv`, click OK through the remaining dialogs.
+
+This runs 4 short simulations and takes well under a minute.
+
+✅ **Success:** a progress window appears, counts to 4, closes, and
+`pilot-test.csv` exists on your computer with 4 rows of numbers in it.
+
+If that worked, the entire pipeline works, and the only difference for the
+real run is that it takes longer. Move on to Step 6.
+
+---
+
 ## Step 6 — Run it and get your data
 
-1. With `latency-experiment` selected, click **Run**.
+1. **Tools → BehaviorSpace**, select `latency-experiment` (the full one, not
+   `pilot`), and click **Run**.
 2. A box appears asking what output you want. **Check "Table output"** and
    leave the others unchecked.
 3. It asks where to save. Name it `latency-results.csv`, save it next to your
@@ -210,6 +259,56 @@ each condition:
 Report averages with standard deviations across the 20 repetitions, never
 single runs. When you have the file, send it to me and I'll do the analysis
 with you.
+
+---
+
+## 🔧 BehaviorSpace troubleshooting
+
+### "My experiment disappeared"
+
+Almost always the cause is Step 5b: the experiment was never saved, and
+NetLogo was closed or restarted at some point after creating it. Experiments
+live inside the model file. Nothing is wrong with the model — recreate the
+experiment (Step 5, about three minutes) and press **Ctrl+S** immediately
+afterwards. Once saved, it stays forever.
+
+A second possibility: you have more than one copy of the model saved
+(`BACKUP` and `WORKING`), and the experiment is in the other one. Check the
+NetLogo title bar to confirm which file you have open.
+
+### "Tools → BehaviorSpace won't open at all"
+
+Work down this list, in order. Stop as soon as one works.
+
+1. **Is an experiment already running?** Look for a separate window called
+   *Running Experiment* — check your taskbar (Windows) or Dock (Mac), and try
+   **Alt+Tab** / **Cmd+Tab**. While a run is in progress NetLogo deliberately
+   blocks the BehaviorSpace manager from opening. If you find it, everything
+   is fine — leave it alone and let it finish.
+2. **Is the window open but invisible?** NetLogo remembers where dialog
+   windows were last positioned, and if that position is off the edge of your
+   current screen — very common after unplugging an external monitor or
+   changing resolution — the window opens where you can't see it. The menu
+   click "works", nothing appears. Fix: **Alt+Tab** (Windows) or the
+   **Window** menu (Mac) to find and select it, then drag it back into view.
+3. **Is NetLogo just busy?** A large run makes the interface sluggish for a
+   few seconds at a time. Wait 30 seconds and try the menu again.
+4. **Restart NetLogo.** Quit completely (force-quit if it won't respond) and
+   reopen `clinic-model-WORKING.nlogo`. This is safe — you have backups, and
+   the model file on disk is untouched by a hung window. Then check
+   **Tools → BehaviorSpace**: if the experiment is listed, you saved it and
+   nothing was lost. If the list is empty, redo Step 5 and save with Ctrl+S.
+
+### "The run started but I can't tell if it's working"
+
+The progress window shows `Run 37 / 640` style counters and elapsed time. If
+that number is climbing, it's working — the full run takes 20–60 minutes.
+Don't click in the main NetLogo window while it runs; just leave it.
+
+### "I want to stop a run that's already going"
+
+Click **Abort** in the progress window. Any runs already completed are still
+written to the CSV file. Aborting damages nothing.
 
 ---
 
