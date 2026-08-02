@@ -54,7 +54,11 @@ Only after 0.1–0.3 pass.
 
 These are ranked. **#1 and #2 are the ones a sharp reviewer will press on.**
 
-### 1. Manual-record error rate — 8% per offline day ⚠️ weakest number in the model
+### 1. ~~Manual-record error rate~~ — RESOLVED, now 0.217 from Bekele et al. 2025
+*Superseded — see the Addendum at the end of this document. Original text kept
+below for the record.*
+
+#### (original entry)
 `reporting-error-rate = 0.08`. Every offline day, 8% of dispensed volume goes
 unrecorded, biased so the system believes *more* stock remains than truly does.
 
@@ -81,7 +85,10 @@ stock cards and physical counts is exactly what you need. Even a range (say
 experiment — which means your results already show whether conclusions depend
 on the value. That is a genuinely good answer.
 
-### 2. Satellite pack size and site consumption ⚠️ now the largest flow in the model
+### 2. ~~Satellite pack size and site consumption~~ — RESOLVED by author
+*35-50 patients per one-day session, supplied directly. See Addendum II.*
+
+#### (original entry)
 `satellite-pack-size = (45, 0, 9)` and `satellite-site-demand = (30, 0, 6)`
 units per team per rollout.
 
@@ -100,10 +107,8 @@ carry? A Smiling Sun or BRAC outreach report, or any satellite-clinic session
 report, would anchor this. If you can give me *patients per session*, I can
 derive units from your existing per-patient class fractions rather than guessing.
 
-### 3. The 43% availability citation ⚠️ not a modelling problem, a sourcing one
-You've confirmed the figure is accurate, but I have never seen its source. Two
-requirements for the write-up:
-- **Supply the citation.** You cannot publish a calibration target without one.
+### 3. The 43% availability citation — resolved on your end, one caution remains
+You have the citation. Nothing is blocked. The one thing that still matters:
 - **Do not attribute it to Kabir et al.** That source gives a *readiness index*
   of 47 — a composite of four domains against a threshold of 70. It is a
   different measurement, and conflating an index score with an availability
@@ -334,3 +339,62 @@ worth saying so explicitly in your write-up.
   is now a *named gap* rather than an oversight; adding it would be a genuine
   extension, and it would likely *reduce* modelled stockouts.
 - **Cold-chain storage loss rate** — neither paper covers it.
+
+
+---
+
+# ADDENDUM II — Satellite quantities derived, not guessed
+
+You supplied: **a satellite session serves 35–50 patients and lasts one day.**
+That closes Tier 1 #2, which was the largest un-evidenced flow in the model.
+
+**How patients became commodity units.** The model already has a convention,
+used by the public-clinic routine: one patient draws one unit of the commodity
+they came for. Applying it consistently:
+
+| Quantity | Value | Basis |
+|---|---|---|
+| Patients per session | **35–50, uniform** | Author |
+| C1 (ESP/MNACH) units per session | **= patients** | One commodity per patient, model convention |
+| C2 units | **0** | Outreach teams are not retail pharmacies |
+| C3 units per session | **20% of patients** | [ASSUMPTION] share needing an administration consumable — syringe for an injectable contraceptive or vaccine, or a test strip |
+| Pack carried | **55 C1, 11 C3** | Top of the patient range plus ~10% margin; teams cannot restock mid-session |
+
+Only the 20% consumable share remains an assumption, and it is a small one —
+it affects C3 throughput by a few units per day. The dominant flow, C1, is now
+derived directly from your figure rather than invented.
+
+**One-day sessions** were already modelled correctly: teams draw stock at
+departure, dispense for the day, and return the remainder the same tick,
+holding nothing in between.
+
+## Re-scaling that followed
+
+Outreach C1 draw rose from ~39 to ~55 units/day per static, so every downstream
+buffer moved again:
+
+| Quantity | Was | Now |
+|---|---|---|
+| C1 push per static | 2,400/mo | **2,900/mo** |
+| SMC donor channel | 7,500/mo | **9,000/mo** |
+| Safety stock (C1/C2/C3) | 550/720/330 | **650/720/350** |
+| Storage capacity | 3,200/4,500/2,000 | **4,400/4,500/2,400** |
+| Opening stock | 2,400/3,000/1,400 | **3,400/3,750/1,830** |
+| AMC warm start | 76/101/46 | **92/101/49** |
+| Shock demand shares | 0.34/0.45/0.21 | **0.38/0.42/0.20** |
+
+Verified after re-scaling:
+
+- Per-static throughput **92.0 / 100.9 / 49.4** units per day (C1/C2/C3)
+- All three classes now **open exactly at their MSH maximum stock level**
+  (3,410 / 3,748 / 1,832 target vs 3,400 / 3,750 / 1,830 opening) — no startup
+  transient in either direction
+- Safety stock is **7.1 days of cover in all three classes**, preserving the
+  specification's implied intent
+- Storage capacity clears the formula target in every class, so the MSH rule
+  governs ordering and is never silently overridden
+- C1 supply over 90 days: 3,400 opening + two monthly pushes = 9,200 against
+  8,279 of demand — adequate, and just tight in a shock month (2,889 needed
+  against 2,900 pushed), which is the intended pressure
+- Shock multipliers recompute to **1.31 / 1.63 / 3.09** with a demand-weighted
+  mean of **1.81**, still matching the specification's 1.8

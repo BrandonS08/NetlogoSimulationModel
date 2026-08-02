@@ -132,7 +132,8 @@ globals [
   warehouse-replenish-interval warehouse-replenish-amount
   public-push-interval public-channel-replenish smc-c1-replenish
   ngo-class1-push-amount
-  satellite-pack-size satellite-site-demand private-shop-base-stock
+  satellite-pack-size satellite-patients-min satellite-patients-max
+  satellite-consumable-share private-shop-base-stock
   rollout-days shock-extra-rollout-day
 
   ;; ---- information / procurement timing ----
@@ -239,9 +240,9 @@ to setup-parameters
                                                            ;; offtake, leaving ~10% headroom so shocks bite
   set public-push-interval    30                      ;; [SPEC]
   set public-channel-replenish (list 950 3400 650 1300)  ;; [CALIBRATED] ~= 12 CCs x push target + 5%
-  set smc-c1-replenish        7500                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
-  set ngo-class1-push-amount  2400                    ;; [CALIBRATED] C1 offtake per static is now
-                                                      ;; ~76/day (own 25 + outreach packs ~39 + diverted ~13)
+  set smc-c1-replenish        9000                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
+  set ngo-class1-push-amount  2900                    ;; [CALIBRATED] C1 offtake per static is
+                                                      ;; ~92/day (own 25 + outreach ~55 + diverted ~12)
   ;; ---- satellite outreach rollouts ----
   ;; Satellites do NOT compete with the static for patients; they DRAW STOCK from
   ;; it and run a mini-clinic at an outlying site for a day. What matters for this
@@ -254,8 +255,19 @@ to setup-parameters
   ;; Outreach commodity mix is overwhelmingly ESP/MNACH — vitamins, maternal items,
   ;; contraceptives, ORS — plus the consumables needed to administer them. Teams
   ;; are not retail pharmacies, so they carry NO C2.
-  set satellite-pack-size   (list 45 0 9)   ;; [ASSUMPTION] units packed per team per rollout
-  set satellite-site-demand (list 30 0 6)   ;; [ASSUMPTION] mean units consumed at a site
+  ;; [AUTHOR] A satellite session serves 35-50 patients and lasts a single day.
+  ;; Converted to commodity units using the model's existing convention that one
+  ;; patient draws one unit of the commodity they came for (the same convention
+  ;; the public-clinic demand routine uses).
+  set satellite-patients-min 35
+  set satellite-patients-max 50
+  set satellite-consumable-share 0.20   ;; [ASSUMPTION] share of outreach patients
+                                        ;; needing an administration consumable —
+                                        ;; syringe for an injectable contraceptive or
+                                        ;; vaccine, or a diagnostic test strip
+  ;; Teams pack for the top of the patient range plus ~10% margin, because they
+  ;; cannot restock mid-session: 50 x 1.1 = 55 C1, and 55 x 0.20 = 11 C3.
+  set satellite-pack-size   (list 55 0 11)
   set private-shop-base-stock (list 100 600 200)      ;; [SPEC]
 
   ;; ---- information & procurement timing (days) ----
@@ -293,7 +305,7 @@ to setup-parameters
   ;; would make the maximum-stock formula under-order for the first 30 days,
   ;; i.e. a third of a 90-day run, for reasons unrelated to information latency.
   ;; This estimate is fully replaced by observed data as the run proceeds.
-  set initial-consumption-estimate (list 76 101 46)
+  set initial-consumption-estimate (list 92 101 49)
   set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
                                      ;; formula; monthly matches "localized monthly consumption
                                      ;; data" and the pharmacist's "weekly/monthly" reporting duty
@@ -349,7 +361,7 @@ to setup-parameters
   ;; Derived here rather than hard-coded, so changing shock-demand-multiplier
   ;; rescales every class consistently and the weighted mean always holds.
   let flood-shape   (list 1.5 3.0 10.0)    ;; excess over baseline, by class
-  let demand-share  (list 0.34 0.45 0.21)  ;; C1/C2/C3 share of NGO throughput
+  let demand-share  (list 0.38 0.42 0.20)  ;; C1/C2/C3 share of NGO throughput
   let weighted-excess sum (map [ [ x w ] -> x * w ] flood-shape demand-share)
   let k ((shock-demand-multiplier - 1) / weighted-excess)
   set c-shock-multipliers (map [ x -> 1 + (x * k) ] flood-shape)
@@ -469,18 +481,18 @@ to setup-ngo-network
 
     ;; opened at the formula's target level, so a 90-day run is not dominated
     ;; by a startup transient
-    set stock-on-hand         (list 2400 3000 1400)
-    set recorded-stock-ledger (list 2400 3000 1400)
+    set stock-on-hand         (list 3400 3750 1830)
+    set recorded-stock-ledger (list 3400 3750 1830)
     set ledger-snapshot-tick  0
     ;; [SPEC-DERIVED] The specification's (200 400 150) encoded roughly ONE WEEK of
     ;; cover at the demand levels assumed then. Corrected demand (C1 ~76/day,
     ;; C2 ~102/day, C3 ~47/day per static, once outreach packs and public
     ;; diversion are counted) preserves that 7-day intent at the true scale.
-    set safety-stock          (list 550 720 330)
+    set safety-stock          (list 650 720 350)
     ;; physical storage ceiling, set ~30% above the maximum stock level the MSH
     ;; formula targets (AMC + safety), so it is a real but rarely-binding limit
     ;; rather than something that silently overrides the paper's order rule
-    set max-stock-capacity    (list 3200 4500 2000)
+    set max-stock-capacity    (list 4400 4500 2400)
 
     set mean-daily-demand     (list 25 55 22)        ;; [SPEC]
     set forecast-daily-demand mean-daily-demand
@@ -853,20 +865,23 @@ to run-satellite-rollouts
     set stock-on-hand loaded
 
     ;; --- run the mini-clinic for the day ---
-    (foreach (list 0 1 2) satellite-site-demand [ [ c-idx mean-need ] ->
-      if mean-need > 0 [
-        let need max (list 0 (round ((random-normal mean-need (mean-need / 4))
-                                     * (c-shock-multiplier c-idx))))
-        if need > 0 [
-          let unfilled (serve-from-stock c-idx need)
-          if unfilled > 0 [
-            ;; an outreach site has no pharmacy next door: unmet need at a
-            ;; rollout is simply unmet, and the patient is not counted as
-            ;; rescued by the private market
-            set ngo-unmet-patients (ngo-unmet-patients + unfilled)
-            set ngo-unmet-own (ngo-unmet-own + unfilled)
-            set completely-unserved-patients (completely-unserved-patients + unfilled)
-          ]
+    ;; 35-50 patients, uniform. Each draws one ESP/MNACH commodity; a fifth also
+    ;; need an administration consumable. Teams carry no retail pharmaceuticals.
+    let session-patients (satellite-patients-min
+                          + random ((satellite-patients-max - satellite-patients-min) + 1))
+    let session-needs (list
+      (round (session-patients * (c-shock-multiplier 0)))
+      0
+      (round (session-patients * satellite-consumable-share * (c-shock-multiplier 2))))
+    (foreach (list 0 1 2) session-needs [ [ c-idx need ] ->
+      if need > 0 [
+        let unfilled (serve-from-stock c-idx need)
+        if unfilled > 0 [
+          ;; an outreach site has no pharmacy next door: unmet need at a rollout
+          ;; is simply unmet — the patient is not rescued by the private market
+          set ngo-unmet-patients (ngo-unmet-patients + unfilled)
+          set ngo-unmet-own (ngo-unmet-own + unfilled)
+          set completely-unserved-patients (completely-unserved-patients + unfilled)
         ]
       ]
     ])
