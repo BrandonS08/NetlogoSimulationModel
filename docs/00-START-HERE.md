@@ -339,6 +339,12 @@ untouched. The only thing lost is work since your last save.
 - **Mac:** press **Cmd+Option+Esc** to open Force Quit Applications. Select
   **NetLogo**, click **Force Quit**, confirm.
 
+**If even force-quit won't work, restart the computer.** Windows: Start →
+Power → Restart. Mac: Apple menu → Restart. If the screen is fully
+unresponsive, hold the physical power button for 10 seconds, then power back
+on. This always works, and it cannot harm your files — a hung program cannot
+damage a `.nlogo` file that is already written to disk.
+
 Then reopen `clinic-model-WORKING.nlogo` and check what survived:
 
 | Check | If present | If missing |
