@@ -356,3 +356,61 @@ stockouts. That answers "how much working capital does a network need before
 information delay stops threatening it?", which is a genuinely interesting
 question a smaller NGO would care about, and it turns an inert mechanism into
 a result. Say the word and I'll add the capital sweep to BehaviorSpace.
+
+
+---
+
+## Part 7 — D3 and D4 resolved
+
+### D4 — First-come-first-served rationing (implemented)
+
+Proportional rationing is gone. When a supply channel cannot cover total need,
+facilities are now served **in turn, each taking its full requirement until the
+channel is empty**; whoever arrives after that gets nothing. Applied in three
+places:
+
+- **Public monthly push** — clinics served in randomised order per cycle
+- **SMC C1 push to NGO statics** — same
+- **C2 warehouse requisitions** — resolved **oldest order first**, which is the
+  literal FCFS reading: an earlier requisition draws before a later one, and a
+  late order can be lost entirely rather than merely shortened
+
+This follows §2.2.4: *"the earliest clinics to demand supplies could take on
+more inventory than their allotment would regularly allow for… leaving other
+similar clinics underserved."*
+
+**Order is randomised each cycle** rather than fixed. Nothing in the sources
+says which clinics are consistently faster, and inventing a persistent "speed"
+attribute would be an assumption with no basis. Worth one line in Limitations:
+if faster clinics are systematically the same ones — better connected, closer
+to the store — then real inequality would be *persistent* rather than
+transient, and worse than modelled.
+
+**New metric: `public-stockout-inequality`.** Standard deviation of per-clinic
+stockout-days as a percentage of the mean. This is what makes the change
+worth having — proportional rationing made every clinic short by the same
+fraction, so shortage was invisible as a *distributional* phenomenon. Under
+FCFS the same total shortfall lands unevenly. It supports a claim your paper
+gestures at but could not previously demonstrate: **information latency does
+not merely cause shortages, it determines who bears them.** Expect this metric
+to rise with `info-latency-severity` and during shocks.
+
+### D3 — Cross-type independent placement (implemented, as you specified)
+
+Your clarification was the important part: the χ² result establishes that NGO
+and public placement are independent **of each other**, and says nothing about
+NGO-vs-NGO or public-vs-public clustering. The implementation matches that
+exactly:
+
+- Each sector gets **its own pair of population cluster centres**, drawn
+  independently at setup
+- Within-sector clustering is retained at the same 55% rate — a stylization,
+  since you have no data either way, and unchanged from before
+- Cross-sector correlation is now **zero by construction**, not by tuning
+
+Cluster centres are also **redrawn every run** rather than fixed at two
+hard-coded patches, so results are not an artefact of one arbitrary map, and
+geographic variation enters the replication variance where it belongs.
+
+You can now cite the χ² test alongside the model description without a reviewer
+finding a contradiction between them.

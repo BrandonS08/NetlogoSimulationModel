@@ -28,6 +28,7 @@ breed [ requisitions    requisition ]    ;; short-lived agents: reorder requests
 
 public-ccs-own [
   stock-on-hand      ;; list of 4 numbers: physical units of P1..P4
+  my-stockout-days   ;; days this clinic had >=1 class at zero (FCFS inequality)
   zero-flags         ;; list of 4 booleans: is this line currently at zero?
   zero-episodes      ;; list of 4 counts: completed entries into a zero state
   ever-zero          ;; list of 4 booleans: has this line EVER hit zero?
@@ -151,7 +152,7 @@ globals [
   higher-care-referral-rate cc-push-target
 
   ;; ---- geography ----
-  cluster-centers
+  public-cluster-centers ngo-cluster-centers
 
   ;; ---- environmental shocks ----
   shock-active? shock-days-remaining scheduled-shock-day
@@ -424,26 +425,51 @@ to setup-geography
     set public-channel-stock (list 950 3400 650 1300)
   ]
 
-  ;; two stylized population clusters (uneven facility distribution, Section 2.x)
-  set cluster-centers (list (patch 8 8) (patch -8 -7))
+  ;; D3 — CROSS-TYPE INDEPENDENT PLACEMENT.
+  ;; The author's chi-square test (X2 = 2.250, p = 0.134, V = 0.187) finds NGO and
+  ;; public per-capita concentrations to be statistically INDEPENDENT OF EACH
+  ;; OTHER. It makes no claim about how NGO facilities sit relative to other NGO
+  ;; facilities, or public relative to public. So each sector gets its OWN pair of
+  ;; population clusters, drawn independently: within-sector clustering is
+  ;; retained as a stylization, while cross-sector correlation is zero by
+  ;; construction. Centres are redrawn each run, so results are not an artefact
+  ;; of one fixed map.
+  set public-cluster-centers (pick-cluster-centers 2)
+  set ngo-cluster-centers    (pick-cluster-centers 2)
 end
 
-to move-to-stylized-location [ min-dist-from-hub ]
+;; Choose N population-cluster centres, kept clear of the hub and reasonably
+;; separated from one another, with fallbacks so this can never fail.
+to-report pick-cluster-centers [ n ]
+  let centers []
+  repeat n [
+    let pool patches with [ ((distancexy 0 0) > 5) and ((distancexy 0 0) < (max-pxcor - 4)) ]
+    if not empty? centers [
+      let existing centers
+      let spread pool with [ (min (map [ c -> distance c ] existing)) > 6 ]
+      if any? spread [ set pool spread ]
+    ]
+    if any? pool [ set centers lput (one-of pool) centers ]
+  ]
+  report centers
+end
+
+to move-to-stylized-location [ min-dist-from-hub anchors ]
   ;; 55% of facilities land inside a population cluster, the rest disperse.
   ;; Robust fallbacks guarantee this can never crash on an empty patch set.
   let pool no-patches
   ifelse (random-float 1.0) < 0.55
-    [ let anchor one-of cluster-centers
+    [ let anchor one-of anchors
       set pool patches with [
         ((distance anchor) < 6) and
         ((distancexy 0 0) > min-dist-from-hub) and
         (not any? turtles-here) ] ]
-    [ set pool patches with [
+    [ let away anchors
+      set pool patches with [
         ((distancexy 0 0) > min-dist-from-hub) and
         ((distancexy 0 0) < (max-pxcor - 1)) and
         (not any? turtles-here) and
-        ((distance (item 0 cluster-centers)) > 5) and
-        ((distance (item 1 cluster-centers)) > 5) ] ]
+        ((min (map [ c -> distance c ] away)) > 5) ] ]
   if not any? pool [
     set pool patches with [ ((distancexy 0 0) > min-dist-from-hub) and (not any? turtles-here) ] ]
   if not any? pool [
@@ -456,8 +482,9 @@ to setup-public-facilities
     set shape "circle"
     set color red
     set size 1.2
-    move-to-stylized-location 3
+    move-to-stylized-location 3 public-cluster-centers
     set stock-on-hand cc-push-target        ;; start freshly pushed
+    set my-stockout-days 0
     set zero-flags    (list false false false false)
     set zero-episodes (list 0 0 0 0)
     set ever-zero     (list false false false false)
@@ -469,7 +496,7 @@ to setup-ngo-network
     set shape "house"
     set color green
     set size 1.8
-    move-to-stylized-location 5
+    move-to-stylized-location 5 ngo-cluster-centers
 
     ;; [PAPER 2.2.3.1] SHN's RDF was ~241 MILLION Taka in 2024, across 134 permanent
     ;; registered facilities => ~1.8 million Taka of revolving capital per static
@@ -1167,7 +1194,11 @@ to place-requisition [ c-idx qty cost-per lag-days source ]   ;; runs as an ngo-
 end
 
 to process-pending-requisitions
-  ask requisitions with [ order-status = "pending" ] [
+  ;; D4 — resolved OLDEST ORDER FIRST, so an earlier requisition draws from the
+  ;; warehouse before a later one. Under proportional rationing every clinic was
+  ;; short by the same fraction; under FCFS a late order can be lost entirely.
+  foreach (sort-on [ tick-created ] (requisitions with [ order-status = "pending" ])) [ r ->
+   ask r [
     if (ticks - tick-created) >= processing-lag-days [
       let clinic origin-clinic
       let c-idx commodity-class
@@ -1213,6 +1244,7 @@ to process-pending-requisitions
       ]
       die
     ]
+   ]
   ]
 end
 
@@ -1245,41 +1277,44 @@ to-report push-need [ p-idx ]   ;; runs as a public-cc
 end
 
 to run-public-push
-  ;; base-build bug fix: pushes now actually DRAW DOWN the public channel, and
-  ;; are rationed proportionally when the channel cannot cover total need
+  ;; D4 — FIRST-COME-FIRST-SERVED, not proportional rationing.
+  ;; Paper 2.2.4: "the earliest clinics to demand supplies could take on more
+  ;; inventory than their allotment would regularly allow for... leaving other
+  ;; similar clinics underserved." Each clinic in turn takes its FULL need until
+  ;; the channel is empty; whoever arrives after that gets nothing. Order is
+  ;; randomised each cycle, since nothing in the sources says which clinics are
+  ;; consistently faster. The consequence that matters is INEQUALITY BETWEEN
+  ;; CLINICS, which proportional rationing averaged away — see
+  ;; public-stockout-inequality.
   let hub one-of regional-hubs
   foreach (list 0 1 2 3) [ p-idx ->
-    let total-need sum [ push-need p-idx ] of public-ccs
-    let avail [ item p-idx public-channel-stock ] of hub
-    let ration-factor 1.0
-    if total-need > 0 [ set ration-factor min (list 1.0 (avail / total-need)) ]
-    let shipped-total sum [ floor ((push-need p-idx) * ration-factor) ] of public-ccs
-    ask public-ccs [
-      let grant floor ((push-need p-idx) * ration-factor)
-      if grant > 0 [
-        set stock-on-hand replace-item p-idx stock-on-hand ((item p-idx stock-on-hand) + grant) ]
-    ]
-    ask hub [
-      set public-channel-stock replace-item p-idx public-channel-stock
-          (max (list 0 ((item p-idx public-channel-stock) - shipped-total)))
+    foreach (shuffle (sort public-ccs)) [ cc ->
+      let avail [ item p-idx public-channel-stock ] of hub
+      if avail > 0 [
+        let grant min (list ([ push-need p-idx ] of cc) avail)
+        if grant > 0 [
+          ask cc [ set stock-on-hand replace-item p-idx stock-on-hand
+                       ((item p-idx stock-on-hand) + grant) ]
+          ask hub [ set public-channel-stock replace-item p-idx public-channel-stock
+                        (avail - grant) ]
+        ]
+      ]
     ]
   ]
 end
 
 to run-ngo-c1-push
-  ;; SMC/donor C1 push to NGO statics, rationed the same way
+  ;; SMC/donor C1 push to NGO statics, first-come-first-served on the same logic
   let hub one-of regional-hubs
-  let total-need (ngo-class1-push-amount * (count ngo-statics))
-  let avail [ smc-c1-stock ] of hub
-  let ration-factor 1.0
-  if total-need > 0 [ set ration-factor min (list 1.0 (avail / total-need)) ]
-  let grant floor (ngo-class1-push-amount * ration-factor)
-  if grant > 0 [
-    ask ngo-statics [
-      set stock-on-hand replace-item 0 stock-on-hand ((item 0 stock-on-hand) + grant) ]
-    set ngo-goods-received-value (ngo-goods-received-value
-        + (grant * (count ngo-statics) * class1-unit-value))
-    ask hub [ set smc-c1-stock max (list 0 (smc-c1-stock - (grant * (count ngo-statics)))) ]
+  foreach (shuffle (sort ngo-statics)) [ st ->
+    let avail [ smc-c1-stock ] of hub
+    let grant min (list ngo-class1-push-amount avail)
+    if grant > 0 [
+      ask st [ set stock-on-hand replace-item 0 stock-on-hand
+                   ((item 0 stock-on-hand) + grant) ]
+      ask hub [ set smc-c1-stock (avail - grant) ]
+      set ngo-goods-received-value (ngo-goods-received-value + (grant * class1-unit-value))
+    ]
   ]
 end
 
@@ -1297,6 +1332,10 @@ to update-running-metrics
   set total-line-days (total-line-days + (4 * (count public-ccs)))
   set facility-stockout-days (facility-stockout-days
       + (count public-ccs with [ not empty? filter [ s -> s <= 0 ] stock-on-hand ]))
+  ask public-ccs [
+    if not empty? filter [ s -> s <= 0 ] stock-on-hand [
+      set my-stockout-days (my-stockout-days + 1) ]
+  ]
   set facility-days (facility-days + (count public-ccs))
   set paper-days-cum (paper-days-cum + (count ngo-statics with [ manual-fallback? ]))
   set static-stockout-line-days (static-stockout-line-days
@@ -1385,6 +1424,21 @@ end
 ;; value.
 to-report waste-pct-of-value
   report 100 * ngo-waste-value / (max (list 1 ngo-goods-received-value))
+end
+
+;; Spread of stockout burden ACROSS public clinics, as a percentage of the mean.
+;; Under proportional rationing every clinic was short by the same fraction and
+;; this stayed low. Under first-come-first-served (D4) a clinic that arrives late
+;; to a depleted channel gets nothing while an early one is filled, so shortage
+;; is distributed unevenly. This is the metric that makes the FCFS mechanism
+;; visible: information latency does not merely cause shortages, it decides
+;; WHO bears them.
+to-report public-stockout-inequality
+  let burdens [ my-stockout-days ] of public-ccs
+  let m mean burdens
+  ifelse m > 0
+    [ report 100 * (standard-deviation burdens) / m ]
+    [ report 0 ]
 end
 
 to-report mean-ledger-age-days
@@ -1702,8 +1756,8 @@ MONITOR
 432
 195
 477
-NGO stockout %
-ngo-static-stockout-pct
+stockout inequality
+public-stockout-inequality
 1
 1
 11
@@ -1712,6 +1766,17 @@ MONITOR
 10
 480
 100
+525
+NGO stockout %
+ngo-static-stockout-pct
+1
+1
+11
+
+MONITOR
+103
+480
+195
 525
 waste % of value
 waste-pct-of-value
@@ -1720,10 +1785,10 @@ waste-pct-of-value
 11
 
 MONITOR
-103
-480
-195
-525
+10
+528
+100
+573
 ledger age (days)
 mean-ledger-age-days
 2
@@ -1731,9 +1796,9 @@ mean-ledger-age-days
 11
 
 MONITOR
-10
+103
 528
-100
+195
 573
 static zero eps
 static-zero-episodes
@@ -1742,10 +1807,10 @@ static-zero-episodes
 11
 
 MONITOR
-103
-528
-195
-573
+10
+576
+100
+621
 C2 ledger gap
 mean-ledger-gap-c2
 1
@@ -1753,9 +1818,9 @@ mean-ledger-gap-c2
 11
 
 MONITOR
-10
+103
 576
-100
+195
 621
 % time on paper
 pct-time-on-paper
@@ -1764,10 +1829,10 @@ pct-time-on-paper
 11
 
 MONITOR
-103
-576
-195
-621
+10
+624
+100
+669
 shock days
 total-shock-days
 0
@@ -1775,9 +1840,9 @@ total-shock-days
 11
 
 MONITOR
-10
+103
 624
-100
+195
 669
 req fill rate
 requisition-fill-rate
@@ -1786,10 +1851,10 @@ requisition-fill-rate
 11
 
 MONITOR
-103
-624
-195
-669
+10
+672
+100
+717
 mean RDF capital
 mean-rdf-capital
 0
@@ -1797,9 +1862,9 @@ mean-rdf-capital
 11
 
 MONITOR
-10
+103
 672
-100
+195
 717
 unverified takings
 mean-unverified-revenue
@@ -1808,10 +1873,10 @@ mean-unverified-revenue
 11
 
 MONITOR
-103
-672
-195
-717
+10
+720
+100
+765
 donor bailouts
 donor-bailouts-total
 0
@@ -1819,9 +1884,9 @@ donor-bailouts-total
 11
 
 MONITOR
-10
+103
 720
-100
+195
 765
 shock active?
 shock-active?
@@ -1982,6 +2047,7 @@ NetLogo 6.4.0
     <metric>requisition-fill-rate</metric>
     <metric>public-availability-pct</metric>
     <metric>public-facility-stockout-pct</metric>
+    <metric>public-stockout-inequality</metric>
     <metric>ngo-static-stockout-pct</metric>
     <metric>waste-pct-of-value</metric>
     <metric>pct-time-on-paper</metric>

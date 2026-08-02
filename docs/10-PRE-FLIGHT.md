@@ -144,9 +144,13 @@ Not worth research time; just make sure they appear in Limitations:
 
 ---
 
-## Tier 2 — Two design decisions still unanswered
+## Tier 2 — ~~Two design decisions still unanswered~~ RESOLVED
 
-Both were raised in `09-PAPER-ALIGNMENT.md` Part 3 and never resolved.
+**Both answered and implemented.** D4 is now first-come-first-served with a
+new `public-stockout-inequality` metric; D3 gives each sector independently
+drawn population clusters, so cross-type correlation is zero by construction.
+See `09-PAPER-ALIGNMENT.md` Part 7. Original text below for the record.
+
 
 ### D3. Should facility placement be statistically independent?
 Your χ² test (χ² = 2.250, p = 0.134, V = 0.187) establishes that NGO and public
