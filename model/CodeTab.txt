@@ -154,7 +154,8 @@ globals [
   ;; ---- environmental shocks ----
   shock-active? shock-days-remaining scheduled-shock-day
   shock-duration-min shock-duration-max
-  shock-demand-multiplier shock-grid-risk-add total-shock-days
+  c-shock-multipliers p-shock-multipliers shock-demand-multiplier
+  shock-grid-risk-add total-shock-days c1-heat-sensitive-share
 
   ;; ---- run control ----
   simulation-length-days
@@ -231,11 +232,13 @@ to setup-parameters
 
   ;; ---- supply channels (gap 1: differentiated CMSD / EDCL / SMC proxies) ----
   set warehouse-replenish-interval 14                      ;; [SPEC]
-  set warehouse-replenish-amount   5600                    ;; [CALIBRATED] ~400 units/day vs ~390/day modeled offtake
+  set warehouse-replenish-amount   4700                    ;; [CALIBRATED] ~336/day vs ~305/day network C2
+                                                           ;; offtake, leaving ~10% headroom so shocks bite
   set public-push-interval    30                      ;; [SPEC]
   set public-channel-replenish (list 950 3400 650 1300)  ;; [CALIBRATED] ~= 12 CCs x push target + 5%
-  set smc-c1-replenish        5000                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
-  set ngo-class1-push-amount  1600                    ;; [CALIBRATED] was 800; see docs/06-CHANGELOG.md
+  set smc-c1-replenish        7500                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
+  set ngo-class1-push-amount  2400                    ;; [CALIBRATED] C1 offtake per static is now
+                                                      ;; ~76/day (own 25 + outreach packs ~39 + diverted ~13)
   ;; ---- satellite outreach rollouts ----
   ;; Satellites do NOT compete with the static for patients; they DRAW STOCK from
   ;; it and run a mini-clinic at an outlying site for a day. What matters for this
@@ -278,6 +281,12 @@ to setup-parameters
   set coldchain-monthly-loss-rate 0.01 ;; [ASSUMPTION] storage-loss component only (see Limitations:
                                        ;;  published TOTAL wastage incl. open-vial is 25-46%)
   set coldchain-outage-accel    4      ;; [SPEC] refrigeration loss multiplier under grid stress
+  set c1-heat-sensitive-share   0.5    ;; [CATALOGUE] 5 of 10 MNACH commodities carry a
+                                       ;; cold-chain or temperature-sensitivity flag (2 cold
+                                       ;; chain incl. MR vaccine, 2 high-temp, 1 temp). That
+                                       ;; share of NGO C1 spoils faster when the grid fails,
+                                       ;; so an outage damages NGO STOCK as well as delaying
+                                       ;; NGO INFORMATION.
 
   ;; ---- public facility demand ----
   set mean-daily-patients 38           ;; [LIT: WHO/CBHC evaluation 2019 — CC utilization ~40/day by 2016]
@@ -305,7 +314,28 @@ to setup-parameters
   set scheduled-shock-day (1 + random (max (list 1 (simulation-length-days - shock-duration-max))))
   set shock-duration-min      7           ;; [SPEC]
   set shock-duration-max      21          ;; [SPEC]
-  set shock-demand-multiplier 1.8         ;; [SPEC]
+  set shock-demand-multiplier 1.8         ;; [SPEC] the AGGREGATE demand uplift
+  ;; CLASS-DIFFERENTIATED SHOCK RESPONSE.
+  ;; The specification's x1.8 is preserved exactly, as the demand-WEIGHTED MEAN
+  ;; across commodity classes. The catalogue's flood-spike data supplies only the
+  ;; SHAPE — how that total is distributed. Catalogue flood sensitivity by class
+  ;; (share of items affected x mean multiplier) gives relative excess demand of
+  ;; about 1.5 : 3.0 : 10.0 for MNACH : pharmaceuticals : consumables.
+  ;; Derived here rather than hard-coded, so changing shock-demand-multiplier
+  ;; rescales every class consistently and the weighted mean always holds.
+  let flood-shape   (list 1.5 3.0 10.0)    ;; excess over baseline, by class
+  let demand-share  (list 0.34 0.45 0.21)  ;; C1/C2/C3 share of NGO throughput
+  let weighted-excess sum (map [ [ x w ] -> x * w ] flood-shape demand-share)
+  let k ((shock-demand-multiplier - 1) / weighted-excess)
+  set c-shock-multipliers (map [ x -> 1 + (x * k) ] flood-shape)
+  ;; public classes inherit: P1 maternal/FP and P3 vaccines follow the MNACH
+  ;; profile, P2 essential medicines the pharmaceutical one, P4 the consumables one
+  set p-shock-multipliers (list (item 0 c-shock-multipliers) (item 1 c-shock-multipliers)
+                                (item 0 c-shock-multipliers) (item 2 c-shock-multipliers))
+  ;; Consumables and diagnostics take the heaviest hit — they are the flood-
+  ;; response commodities (IV fluids, ORS, test kits) — while chronic-disease
+  ;; medicines barely move. This matters because C3 also has the thinnest buffer,
+  ;; so the shock lands where the information system is least forgiving.
   set shock-grid-risk-add     0.25        ;; [SPEC]
   set total-shock-days        0
 
@@ -348,7 +378,7 @@ to setup-geography
     set color blue
     set size 2.5
     setxy 0 0
-    set smc-c1-stock 5000
+    set smc-c1-stock 7500
     set ngo-warehouse-stock 10000
     set public-channel-stock (list 950 3400 650 1300)
   ]
@@ -408,11 +438,20 @@ to setup-ngo-network
     set rdf-capital-locked? false
     set days-capital-locked 0
 
-    set stock-on-hand         (list 800 1500 500)    ;; [SPEC]
-    set recorded-stock-ledger (list 800 1500 500)
+    ;; opened at the formula's target level, so a 90-day run is not dominated
+    ;; by a startup transient
+    set stock-on-hand         (list 2400 3000 1400)
+    set recorded-stock-ledger (list 2400 3000 1400)
     set ledger-snapshot-tick  0
-    set safety-stock          (list 200 400 150)     ;; [SPEC]
-    set max-stock-capacity    (list 1200 2500 800)   ;; [SPEC]
+    ;; [SPEC-DERIVED] The specification's (200 400 150) encoded roughly ONE WEEK of
+    ;; cover at the demand levels assumed then. Corrected demand (C1 ~76/day,
+    ;; C2 ~102/day, C3 ~47/day per static, once outreach packs and public
+    ;; diversion are counted) preserves that 7-day intent at the true scale.
+    set safety-stock          (list 550 720 330)
+    ;; physical storage ceiling, set ~30% above the maximum stock level the MSH
+    ;; formula targets (AMC + safety), so it is a real but rarely-binding limit
+    ;; rather than something that silently overrides the paper's order rule
+    set max-stock-capacity    (list 3200 4500 2000)
 
     set mean-daily-demand     (list 25 55 22)        ;; [SPEC]
     set forecast-daily-demand mean-daily-demand
@@ -537,8 +576,12 @@ to-report effective-grid-failure-rate
     [ report grid-failure-rate ]
 end
 
-to-report shock-multiplier
-  ifelse shock-active? [ report shock-demand-multiplier ] [ report 1 ]
+to-report c-shock-multiplier [ c-idx ]     ;; NGO classes C1..C3
+  ifelse shock-active? [ report (item c-idx c-shock-multipliers) ] [ report 1 ]
+end
+
+to-report p-shock-multiplier [ p-idx ]     ;; public classes P1..P4
+  ifelse shock-active? [ report (item p-idx p-shock-multipliers) ] [ report 1 ]
 end
 
 to update-connectivity
@@ -573,6 +616,14 @@ to apply-physical-spoilage-and-shrinkage
       (stochastic-round ((item 0 stock-on-hand) * (c1-monthly-spoilage-rate / 30)))
       (stochastic-round ((item 1 stock-on-hand) * ((c2-monthly-spoilage-rate + c2-monthly-shrinkage-rate) / 30)))
       (stochastic-round ((item 2 stock-on-hand) * (c3-monthly-spoilage-rate / 30))))
+    ;; extra heat-driven loss on the temperature-sensitive share of C1 when the
+    ;; grid is failing — the NGO-side counterpart of public cold-chain spoilage
+    if effective-grid-failure-rate > 0.3 [
+      let extra (stochastic-round ((item 0 stock-on-hand) * c1-heat-sensitive-share
+                                   * (c1-monthly-spoilage-rate / 30)
+                                   * (coldchain-outage-accel - 1)))
+      set losses replace-item 0 losses ((item 0 losses) + extra)
+    ]
     (foreach (list 0 1 2) losses [ [ c-idx loss ] ->
       if loss > 0 [
         set stock-on-hand replace-item c-idx stock-on-hand (max (list 0 ((item c-idx stock-on-hand) - loss)))
@@ -611,7 +662,8 @@ to process-public-demand
     set routine-referrals (routine-referrals + referred)
     let seeking (total-patients - referred)
 
-    let needs (map [ f -> round (seeking * f * shock-multiplier) ] p-class-fractions)
+    let needs (map [ [ f p-idx ] -> round (seeking * f * (p-shock-multiplier p-idx)) ]
+                   p-class-fractions (list 0 1 2 3))
     (foreach (list 0 1 2 3) needs [ [ p-idx need ] ->
       if need > 0 [
         let avail (item p-idx stock-on-hand)
@@ -707,11 +759,10 @@ end
 
 to process-ngo-static-demand
   ask ngo-statics [
-    let m shock-multiplier
     let needs (list
-      (max (list 0 (round ((random-normal (item 0 mean-daily-demand) 5) * m))))
-      (max (list 0 (round ((random-normal (item 1 mean-daily-demand) 8) * m))))
-      (max (list 0 (round ((random-normal (item 2 mean-daily-demand) 4) * m)))))
+      (max (list 0 (round ((random-normal (item 0 mean-daily-demand) 5) * (c-shock-multiplier 0)))))
+      (max (list 0 (round ((random-normal (item 1 mean-daily-demand) 8) * (c-shock-multiplier 1)))))
+      (max (list 0 (round ((random-normal (item 2 mean-daily-demand) 4) * (c-shock-multiplier 2))))))
     (foreach (list 0 1 2) needs [ [ c-idx need ] ->
       if need > 0 [
         let unfilled (serve-from-stock c-idx need)
@@ -772,10 +823,10 @@ to run-satellite-rollouts
     set stock-on-hand loaded
 
     ;; --- run the mini-clinic for the day ---
-    let m shock-multiplier
     (foreach (list 0 1 2) satellite-site-demand [ [ c-idx mean-need ] ->
       if mean-need > 0 [
-        let need max (list 0 (round ((random-normal mean-need (mean-need / 4)) * m)))
+        let need max (list 0 (round ((random-normal mean-need (mean-need / 4))
+                                     * (c-shock-multiplier c-idx))))
         if need > 0 [
           let unfilled (serve-from-stock c-idx need)
           if unfilled > 0 [
@@ -968,7 +1019,9 @@ to process-capital-lock-and-bailouts
 end
 
 to-report minimum-c2-batch   ;; runs as an ngo-static
-  report round (min-batch-days * (item 1 mean-daily-demand))
+  ;; based on observed throughput, which includes diverted public patients —
+  ;; not just the clinic's own walk-in mean
+  report round (min-batch-days * ((average-monthly-consumption 1) / 30))
 end
 
 ;; Average Monthly Consumption, computed from the clinic's own OBSERVED demand

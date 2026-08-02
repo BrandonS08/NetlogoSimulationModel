@@ -271,3 +271,88 @@ You offered, so here are the four worth asking about, most useful first.
 
 Answer any subset — each is independent, and the model is complete and runnable
 without all four.
+
+---
+
+## Part 6 — Decisions applied, and the full re-scaling audit
+
+### Your answers, as implemented
+
+| Decision | Outcome |
+|---|---|
+| 43% benchmark | **Accurate, source outside the supplied text.** Calibration unchanged. ⚠️ You must supply the citation for the write-up, and it must **not** be attributed to Kabir et al. — that source gives a *readiness index* of 47, a different measurement. |
+| Class-differentiated shock multipliers | **Yes** — implemented, see below |
+| Heat spoilage for NGO C1 | **Yes** — implemented, see below |
+| Rural/urban static profiles | **Declined** — three identical statics retained |
+| Patient-volume cross-check | Spec wins. Checked: they agree. The spec's per-class demand implies roughly 50–100 patient-equivalents/day at a static, and the catalogue's rural clinic runs 40–60/day. Same order of magnitude, no change made. |
+
+### Class-differentiated shocks
+The specification's ×1.8 is preserved **exactly**, as the demand-weighted mean
+across classes; the catalogue supplies only the *shape*. Catalogue flood
+sensitivity per class (share of items affected × mean multiplier) gives relative
+excess demand of about 1.5 : 3.0 : 10.0 for MNACH : pharmaceuticals :
+consumables. Scaling that so the weighted mean lands on 1.8 gives:
+
+| Class | Shock multiplier |
+|---|---|
+| C1 / P1 / P3 (MNACH, vaccines) | **×1.30** |
+| C2 / P2 (pharmaceuticals) | **×1.61** |
+| C3 / P4 (consumables, diagnostics) | **×3.02** |
+
+These are **derived in code** from `shock-demand-multiplier`, not hard-coded, so
+changing the aggregate rescales every class and the weighted mean always holds.
+
+Why this matters for your argument: consumables and diagnostics take the
+heaviest hit — they are the flood-response commodities — and C3 also has the
+shortest lead time and thinnest buffer. The shock now lands hardest exactly
+where the information system is least forgiving, which a flat ×1.8 could not
+express.
+
+### Heat spoilage on NGO Class 1
+Five of ten MNACH commodities in the catalogue carry a cold-chain or
+temperature-sensitivity flag (2 cold-chain including MR vaccine, 2 high-temp,
+1 temp). That 50% share of C1 now spoils at the ×4 outage rate when the grid is
+failing. **One environmental shock now has two physical consequences at NGO
+clinics** — it damages stock *and* delays information — where previously it only
+delayed information.
+
+### Re-scaling audit
+You asked me to make sure things scale across the board. The satellite rebuild
+raised C1 and C3 throughput substantially, which invalidated several buffers.
+All flows re-derived and re-balanced:
+
+| Quantity | Before | Now | Basis |
+|---|---|---|---|
+| C1 push per static | 1,600/mo | **2,400/mo** | true C1 offtake is 2,277/mo (own 25/day + outreach 38.6/day + diverted 12.3/day) |
+| SMC channel | 5,000/mo | **7,500/mo** | covers 3 × 2,400 with headroom |
+| C2 warehouse | 5,600/14d | **4,700/14d** | C2 demand *fell* when satellites stopped carrying retail stock; 336/day supply vs 303/day demand = 11% headroom, so shocks ration |
+| Safety stock | 200/400/150 | **550/720/330** | preserves the spec's implied **7-day cover** at corrected demand (now 7.2 / 7.1 / 7.1 days) |
+| Storage capacity | 1,200/2,500/800 | **3,200/4,500/2,000** | ~30% above the MSH formula's maximum stock level, so the cap is a real but rarely-binding limit instead of silently overriding the paper's order rule |
+| Opening stock | 800/1,500/500 | **2,400/3,000/1,400** | near formula target, so a 90-day run isn't dominated by a startup transient |
+
+Verified after re-scaling: public availability **44–45%** (target ~43%); the
+MSH formula governs ordering in all three classes rather than hitting the
+storage cap; the C2 warehouse and the P2 public channel both ration during
+shock periods, as intended; C1 push covers demand in a normal month and goes
+just tight in a shock month.
+
+### ⚠️ An honest finding: the capital lock cannot fire
+At the paper's capitalization the revolving fund holds **~940 days of drug
+purchasing** per clinic. The lock threshold is ~10,600 BDT against 1.8M in the
+fund, so `rdf-capital-locked?` and the donor-bailout path are effectively
+unreachable, and the new verified-revenue mechanic — although it correctly
+freezes takings during outages — never actually blocks an order.
+
+This is not a bug, and I am not going to hide it by shrinking the capital to
+make the mechanism look important. It is what the paper's own figures imply:
+SHN's RDF is well capitalized and growing 13.3% a year, and the strain the
+paper describes falls on the *general* fund, not the RDF.
+
+**Two legitimate ways to use this.** Report it as a finding — at SHN's actual
+capitalization, information latency harms *availability* but not *solvency*.
+And run the sensitivity experiment it suggests: vary starting RDF capital
+downward and find the point at which latency begins causing financially-driven
+stockouts. That answers "how much working capital does a network need before
+information delay stops threatening it?", which is a genuinely interesting
+question a smaller NGO would care about, and it turns an inert mechanism into
+a result. Say the word and I'll add the capital sweep to BehaviorSpace.
