@@ -210,10 +210,34 @@ file. This makes a tiny throwaway version first.
 
 5. Change **Time limit** to `200`.
 6. Click **OK**, then press **Ctrl+S** to save again.
-7. Select `pilot`, click **Run**, choose **Table output**, save it as
-   `pilot-test.csv`, click OK through the remaining dialogs.
+7. Select `pilot`, click **Run**. Then fill in the run-options dialog exactly
+   as described in the box below, using `pilot-test.csv` as the filename and
+   leaving **Simultaneous runs in parallel** at `1`.
 
 This runs 4 short simulations and takes well under a minute.
+
+### 📋 The run-options dialog — how to fill it in
+
+This dialog trips people up because it uses **file paths, not checkboxes**.
+A blank field means that output type is switched **off**. You turn an output
+on by giving it a filename.
+
+| Field | What to do |
+|---|---|
+| **Spreadsheet output** | Leave blank |
+| **Table output** | Click **Browse**, pick a folder, type the filename, click Save. The field should then show a path — this is what turns table output on. |
+| **Stats output** | Leave blank |
+| **Lists output** | Leave blank |
+| **Update view** | **Uncheck** — redrawing the map during runs is slow and pointless here |
+| **Update plots & monitors** | **Uncheck** — same reason |
+| **Simultaneous runs in parallel** | `1` for the pilot; `4` for the real run |
+| **Display parallel run output in command center** | Leave unchecked |
+
+You do not need to click **Disable** on the outputs you aren't using — blank
+already means off.
+
+*Why table output and not spreadsheet:* table output writes one row per
+simulation run, which is the format you want for averaging in Excel.
 
 ✅ **Success:** a progress window appears, counts to 4, closes, and
 `pilot-test.csv` exists on your computer with 4 rows of numbers in it.
@@ -227,11 +251,16 @@ real run is that it takes longer. Move on to Step 6.
 
 1. **Tools → BehaviorSpace**, select `latency-experiment` (the full one, not
    `pilot`), and click **Run**.
-2. A box appears asking what output you want. **Check "Table output"** and
-   leave the others unchecked.
-3. It asks where to save. Name it `latency-results.csv`, save it next to your
-   model file, click **OK**.
-4. On the next small dialog, leave the defaults and click **OK**.
+2. The run-options dialog appears. Fill it in using the table in Step 5c,
+   with two differences from the pilot:
+   - **Table output** filename: `latency-results.csv`
+   - **Simultaneous runs in parallel**: set it to `4` (runs four simulations
+     at once, cutting the wait roughly fourfold). Drop to `2` if your
+     computer struggles.
+3. Make sure **Update view** and **Update plots & monitors** are both
+   **unchecked** — with 640 runs this makes a large difference to the total
+   time.
+4. Click **OK**.
 5. It will now run 640 simulations. **This takes roughly 20–60 minutes.**
    A progress window shows how many runs are done. Leave the computer alone
    and go do something else.
