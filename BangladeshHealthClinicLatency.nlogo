@@ -146,6 +146,7 @@ globals [
 
   ;; ---- public facility demand ----
   mean-daily-patients patient-sd p-class-fractions p-to-c-class-map
+  initial-consumption-estimate
   higher-care-referral-rate cc-push-target
 
   ;; ---- geography ----
@@ -269,6 +270,14 @@ to setup-parameters
                                      ;; the magnitude is the assumption, the direction is not.
   set forecast-window-days    14     ;; [ASSUMPTION] trailing window for demand forecasting
   set demand-history-days     30     ;; [PAPER 2.2.3.1] monthly consumption data drives ordering
+  ;; WARM START for Average Monthly Consumption. A clinic's real throughput is
+  ;; its own walk-ins PLUS the outreach packs it issues PLUS patients diverted
+  ;; in from public stockouts — analytically ~76 / 101 / 46 units per day for
+  ;; C1 / C2 / C3. Seeding the history with walk-in demand alone (25/55/22)
+  ;; would make the maximum-stock formula under-order for the first 30 days,
+  ;; i.e. a third of a 90-day run, for reasons unrelated to information latency.
+  ;; This estimate is fully replaced by observed data as the run proceeds.
+  set initial-consumption-estimate (list 76 101 46)
   set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
                                      ;; formula; monthly matches "localized monthly consumption
                                      ;; data" and the pharmacist's "weekly/monthly" reporting duty
@@ -457,7 +466,7 @@ to setup-ngo-network
     set forecast-daily-demand mean-daily-demand
     ;; seeded with a full month at the baseline rate so Average Monthly Consumption
     ;; is well-defined from day 1 (a 90-day run has no time for a warm-up period)
-    set demand-history        (n-values demand-history-days [ -> mean-daily-demand ])
+    set demand-history        (n-values demand-history-days [ -> initial-consumption-estimate ])
     set requested-today       (list 0 0 0)
     set dispensed-today       (list 0 0 0)
     set paper-error-accum     (list 0 0 0)
