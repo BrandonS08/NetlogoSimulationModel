@@ -15,8 +15,8 @@ seeds, and writes one row per run to a spreadsheet file.
 | `grid-failure-rate` | 0.05, 0.25 | Low vs high infrastructure disruption, which drives paper fallback. |
 | `demand-shocks?` | true, false | With and without environmental shocks. |
 
-4 × 2 × 2 × 2 = 32 conditions × 20 replications = **640 runs** of 1,095 days
-(3 years). That is enough for means with confidence intervals in every cell.
+4 × 2 × 2 × 2 = 32 conditions × 20 replications = **640 runs** of 3,650 days
+(10 years). That is enough for means with confidence intervals in every cell.
 
 ## Creating it (click by click)
 
@@ -38,14 +38,13 @@ seeds, and writes one row per run to a spreadsheet file.
 
 ```
 ngo-unmet-patients
-ngo-unmet-own
+ngo-unmet-walkin
 ngo-unmet-diverted
 waste-value-total
 lines-ever-zero
 zero-episode-total
 zero-episodes-per-line
 static-zero-episodes
-satellite-zero-episodes
 public-zero-episodes
 completely-unserved-patients
 coldchain-unserved
@@ -56,10 +55,14 @@ reqs-lost-count
 requisition-fill-rate
 public-availability-pct
 public-facility-stockout-pct
+public-stockout-inequality
+ngo-static-stockout-pct
+waste-pct-of-value
 pct-time-on-paper
 mean-ledger-age-days
 mean-ledger-gap-c2
 mean-rdf-capital
+mean-unverified-revenue
 donor-bailouts-total
 total-shock-days
 ```
@@ -68,7 +71,7 @@ Your four required outcome metrics are `ngo-unmet-patients`,
 `waste-value-total`, `lines-ever-zero` (items that hit zero at any point) and
 `zero-episode-total` (how often items hit zero across the run).
 
-**Analyse the decomposed columns, not only the totals.** `ngo-unmet-own` and
+**Analyse the decomposed columns, not only the totals.** `ngo-unmet-walkin` and
 `static-zero-episodes` isolate the facilities that actually carry the
 information layer; the totals also contain public-clinic and satellite
 components that are structurally incapable of responding to either treatment
@@ -81,7 +84,7 @@ different claims.
    1,095 rows per run — leaving this checked produces a 700,000-row file.
 8. **Setup commands**: `setup`   **Go commands**: `go`
 9. **Stop condition**: leave empty.
-10. **Time limit**: `1095`
+10. **Time limit**: `3650`
 11. Click **OK**, then **Run**.
 12. In the run dialog choose **Table output**, pick a filename
     (e.g. `latency-results.csv`), set **Simultaneous runs in parallel** to the
@@ -90,10 +93,14 @@ different claims.
 
 ## Runtime expectations
 
-640 runs × 1,095 days. Expect roughly **20–60 minutes** on a typical laptop
-with parallel runs enabled. Start it and leave it. If that's too long, drop
-`grid-failure-rate` to a single value (0.25) to halve it, or reduce
-repetitions to 10 — but report whatever you used.
+640 runs × 3,650 days. Expect roughly **1–3.5 hours** on a typical laptop with
+parallel runs set to 4. Start it and leave it overnight if need be.
+
+**A legitimate way to halve it:** at a ten-year horizon each run already
+contains ~20 shock events, so between-run variance is much lower than it was on
+short runs and 20 replications is more than you need. **10 repetitions is
+defensible** — report whatever you used, and report the standard deviations so
+the reader can see the precision you actually achieved.
 
 ## Reading the output
 
@@ -108,7 +115,7 @@ outcome across the 20 replications. The three comparisons your paper needs:
    `predictive-modeling?` false. Expect unmet demand, waste and zero-episodes
    to rise monotonically with severity.
 2. **Mitigation effect** — predictive true vs false at each severity level.
-   Expect `static-zero-episodes` and `ngo-unmet-own` to fall, while
+   Expect `static-zero-episodes` and `ngo-unmet-walkin` to fall, while
    `mean-ledger-age-days` and `pct-time-on-paper` stay **statistically
    identical** — that pair of results is the finding worth emphasizing:
    prediction fixes timing without fixing data accuracy. (`mean-ledger-gap-c2`

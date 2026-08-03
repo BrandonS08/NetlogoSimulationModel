@@ -317,7 +317,7 @@ Both contribute large, essentially constant amounts to `ngo-unmet-patients`,
 `lines-ever-zero` and `zero-episode-total`. Only the three NGO statics carry
 the latency layer, so a change in `info-latency-severity` or
 `predictive-modeling?` can only move the static component. Always report the
-decomposition alongside the total — `ngo-unmet-own` vs `ngo-unmet-diverted`,
+decomposition alongside the total — `ngo-unmet-walkin` vs `ngo-unmet-diverted`,
 and `static-zero-episodes` vs `satellite-zero-episodes` vs
 `public-zero-episodes`. A reviewer who sees only the totals will conclude the
 treatment effect is small; the decomposition shows where it actually lives.

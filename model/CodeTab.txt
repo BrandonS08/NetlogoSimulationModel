@@ -155,7 +155,7 @@ globals [
   public-cluster-centers ngo-cluster-centers
 
   ;; ---- environmental shocks ----
-  shock-active? shock-days-remaining scheduled-shock-day
+  shock-active? shock-days-remaining shock-onset-probability
   shock-duration-min shock-duration-max
   c-shock-multipliers p-shock-multipliers shock-demand-multiplier
   shock-grid-risk-add total-shock-days c1-heat-sensitive-share
@@ -165,7 +165,8 @@ globals [
 
   ;; ---- outcome metrics ----
   ngo-unmet-patients            ;; outcome 1: patients an NGO facility could not serve from stock
-  ngo-unmet-own                 ;;   ...of which: the NGO network's own walk-in/satellite patients
+  ngo-unmet-walkin              ;;   ...of which: the NGO network's own walk-in and
+                                ;;   outreach-session patients (not public spillover)
   ngo-unmet-diverted            ;;   ...of which: patients diverted in from a public CC stockout
   completely-unserved-patients  ;; patients who got nothing anywhere (NGO and private both failed)
   coldchain-unserved            ;; P3 patients referred to higher care (no NGO/private substitute)
@@ -340,16 +341,13 @@ to setup-parameters
   ;; ---- environmental shocks (monsoon/flood proxy) ----
   set shock-active?           false
   set shock-days-remaining    0
-  ;; SHOCK AS AN EXPERIMENTAL FACTOR, not a rare random event.
-  ;; The paper studies 90-day periods. At a background rate of ~2 events/year a
-  ;; random-onset shock would appear in only ~39% of runs, so a "shocks on" arm
-  ;; would be mostly indistinguishable from "shocks off" and the environmental
-  ;; half of the research question would be untestable. Instead, demand-shocks?
-  ;; = On means this 90-day period CONTAINS one shock (read it as a monsoon
-  ;; season), with its ONSET DAY randomised so timing is still stochastic.
-  ;; This controls shock presence and randomises shock timing — the standard
-  ;; way to make a rare event analysable in a short observation window.
-  set scheduled-shock-day (1 + random (max (list 1 (simulation-length-days - shock-duration-max))))
+  ;; STOCHASTIC SHOCK ONSET at the specification's natural rate. Over a 3,650-day
+  ;; run this produces ~20 monsoon/flood events, so shock frequency itself becomes
+  ;; part of what the model reproduces rather than something imposed. (An earlier
+  ;; 90-day build had to schedule exactly one shock per run, because at this rate
+  ;; a 90-day window contains an event only ~39% of the time. A ten-year horizon
+  ;; removes that problem entirely.)
+  set shock-onset-probability (2 / 365)   ;; [SPEC] ~2 events per year
   set shock-duration-min      7           ;; [SPEC]
   set shock-duration-max      21          ;; [SPEC]
   set shock-demand-multiplier 1.8         ;; [SPEC] the AGGREGATE demand uplift
@@ -378,14 +376,16 @@ to setup-parameters
   set total-shock-days        0
 
   ;; ---- run control ----
-  set simulation-length-days 90           ;; [PAPER Section I] "track and record data over 90 day
-                                          ;; simulation periods". NOTE: at the paper's shock rate
-                                          ;; of ~2/year, only ~39% of 90-day runs contain a shock
-                                          ;; at all — see docs/09 for how to handle this.
+  set simulation-length-days 3650         ;; ten years of daily ticks (author's decision).
+                                          ;; A decade-long horizon lets the shock process run at
+                                          ;; its natural rate (~2 events/year, so ~20 per run)
+                                          ;; instead of needing one scheduled event, and lets
+                                          ;; slow effects such as RDF drift and repeat stockout
+                                          ;; cycles accumulate enough to measure.
 
   ;; ---- metrics ----
   set ngo-unmet-patients 0
-  set ngo-unmet-own 0
+  set ngo-unmet-walkin 0
   set ngo-unmet-diverted 0
   set completely-unserved-patients 0
   set coldchain-unserved 0
@@ -628,7 +628,7 @@ to update-demand-shocks
   ifelse shock-active?
     [ set shock-days-remaining (shock-days-remaining - 1)
       if shock-days-remaining <= 0 [ set shock-active? false ] ]
-    [ if demand-shocks? and (ticks = scheduled-shock-day) [
+    [ if demand-shocks? and ((random-float 1.0) < shock-onset-probability) [
         set shock-active? true
         ;; +1 makes shock-duration-max attainable (an earlier build had an off-by-one)
         set shock-days-remaining (shock-duration-min + random ((shock-duration-max - shock-duration-min) + 1))
@@ -837,7 +837,7 @@ to process-ngo-static-demand
         let unfilled (serve-from-stock c-idx need)
         if unfilled > 0 [
           set ngo-unmet-patients (ngo-unmet-patients + unfilled)
-          set ngo-unmet-own (ngo-unmet-own + unfilled)
+          set ngo-unmet-walkin (ngo-unmet-walkin + unfilled)
           let still-unserved (send-to-private unfilled c-idx)
           if still-unserved > 0 [
             set completely-unserved-patients (completely-unserved-patients + still-unserved) ]
@@ -907,7 +907,7 @@ to run-satellite-rollouts
           ;; an outreach site has no pharmacy next door: unmet need at a rollout
           ;; is simply unmet — the patient is not rescued by the private market
           set ngo-unmet-patients (ngo-unmet-patients + unfilled)
-          set ngo-unmet-own (ngo-unmet-own + unfilled)
+          set ngo-unmet-walkin (ngo-unmet-walkin + unfilled)
           set completely-unserved-patients (completely-unserved-patients + unfilled)
         ]
       ]
@@ -940,7 +940,7 @@ end
 
 ;; Satellites are deliberately EXCLUDED: they hold nothing between rollouts, so
 ;; an empty satellite is normal operation, not a stockout. Their supply failures
-;; are captured where they belong — as unmet outreach patients in ngo-unmet-own.
+;; are captured where they belong — as unmet outreach patients in ngo-unmet-walkin.
 ;; Tracked lines: (12 public CCs x 4 classes) + (3 statics x 3 classes) = 57.
 to track-zero-stock
   ask (turtle-set public-ccs ngo-statics) [ update-zero-tracking ]
@@ -1381,7 +1381,7 @@ end
 ;; cycle, so it dilutes the latency signal in the headline metric.
 to-report ngo-unmet-own-share
   ifelse ngo-unmet-patients > 0
-    [ report ngo-unmet-own / ngo-unmet-patients ]
+    [ report ngo-unmet-walkin / ngo-unmet-patients ]
     [ report 0 ]
 end
 

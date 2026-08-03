@@ -148,7 +148,11 @@ reporters are new.
 |---------------------------|---------------------|----------|-------------------|
 | `mean-ledger-age-days`    | ledger age (days)   | 2 | **The clean measure of information quality**: how many days out of date the ledger is. Unlike the gap monitor, this cannot be moved by better ordering — which is exactly what makes it the right test of "predictive modeling doesn't fix data accuracy". |
 | `static-zero-episodes`    | static zero eps     | 0 | Zero-stock episodes at NGO static hubs only — the **only** facilities with information mechanics, so the only place a latency or predictive effect can appear. |
-| `ngo-unmet-own`           | ...of which own     | 0 | The share of unmet demand from the NGO network's own patients rather than public-clinic spillover. |
+| `ngo-unmet-walkin`        | ...of which walk-in | 0 | Unmet demand from the NGO network's own walk-in and outreach patients, as opposed to public-clinic spillover. |
+| `public-stockout-inequality` | stockout inequality | 1 | Spread of stockout burden across public clinics. Rises under first-come-first-served rationing — shows that latency decides *who* goes short, not just how much. |
+| `ngo-static-stockout-pct` | NGO stockout %      | 1 | Validation benchmark: compare against ~8.33% (Bekele et al. 2025). |
+| `waste-pct-of-value`      | waste % of value    | 2 | Validation benchmark: compare against the <2% USAID/DELIVER standard. |
+| `mean-unverified-revenue` | unverified takings  | 0 | Money taken at the counter that cannot yet be spent because the sale is unsynced. Spikes during outages. |
 | `total-shock-days`        | shock days          | 0 | Cumulative days spent under environmental shock — a high-variance metric, useful for confirming run-to-run randomness (check 5). |
 
 If screen space is tight, `ledger age (days)` and `static zero eps` are the two

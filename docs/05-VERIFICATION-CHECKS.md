@@ -13,11 +13,10 @@ reading code.
 Before starting: complete `02-INTERFACE-SETUP.md`, including the monitors
 added in Phase D.2.
 
-> **Run length.** The model now stops automatically at **day 90**, per your
-> paper's stated study period. Every check below is written for a 90-day run.
-> Where a check needs more signal than 90 days gives, it asks you to repeat the
-> run a few times and compare averages instead — which is better practice
-> anyway. Do not edit `simulation-length-days` to work around this.
+> **Run length.** The model runs for **3,650 days (ten years)** and stops on
+> its own. For most checks below you do not need to wait for the end — the
+> answer is visible within the first few hundred days, and you can click **go**
+> again to stop early. Where a check needs the full run, it says so.
 
 ---
 
@@ -39,7 +38,8 @@ baseline rate. So with shocks On, clinics still lose connectivity even at
 freezes during those episodes. That is correct model behavior; the original
 version of this check simply did not describe a clean control condition.
 
-**Steps:** set the three controls, click **setup**, then **go**. It stops on its own at day 90.
+**Steps:** set the three controls, click **setup**, then **go**. Watch for a few
+hundred days — that is plenty for this check — then stop.
 
 **Expected:**
 - "C2 ledger gap" = **0.0** for the whole run
@@ -50,7 +50,7 @@ version of this check simply did not describe a clean control condition.
   push rigidity, not information failure
 
 **Then the opposite extreme:** `info-latency-severity` = **3**,
-`grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run to day 90.
+`grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run ~500 days.
 Expect a ledger gap in the hundreds of units, ledger age well above 9 days,
 "% time on paper" above 60%, and clearly worse unmet demand.
 
@@ -83,15 +83,15 @@ statistically identical across the two arms.
 **Steps:**
 1. `info-latency-severity` = 2, `grid-failure-rate` = 0.25, `demand-shocks?`
    On, `predictive-modeling?` **Off**.
-2. setup → go → let it run to day **90**. Record: **static zero episodes**,
+2. setup → go → let it run to completion (day 3,650). Record: **static zero episodes**,
    **unmet @ NGO**, **ledger age (days)**, **% time on paper**.
-3. Flip `predictive-modeling?` **On**. setup → go → run to day 90. Record the
-   same four.
-4. **Repeat both arms at least 5 times** and compare averages, not single runs.
-   Ninety days is a short window, so run-to-run noise is larger than it was on
-   the old long runs — treat differences under ~15% in a single pair as
-   meaningless. (If you want a properly powered answer, the BehaviorSpace
-   experiment does exactly this comparison at 20 replications per cell.)
+3. Flip `predictive-modeling?` **On**. setup → go → run to completion. Record
+   the same four.
+4. **Repeat both arms at least 3 times** and compare averages, not single runs.
+   A ten-year run averages over ~20 shock events, so it is far less noisy than a
+   short one, but treat differences under ~10% in a single pair as meaningless.
+   (For a properly powered answer, the BehaviorSpace experiment does exactly
+   this comparison at 20 replications per cell.)
 
 **Expected:**
 
@@ -121,9 +121,9 @@ across three paired runs, the predictive arm is inert.*
 ## Check 3 — Shock switch and outage extremes
 
 1. `demand-shocks?` **Off**, defaults otherwise (grid 0.1, severity 1,
-   predictive Off). setup → run to day 90. Expect "shock active?" *false* for
-   the entire run, and smooth growth in cold-chain referrals and waste.
-2. `demand-shocks?` **On**, `grid-failure-rate` **0.5**. setup → run to day 90.
+   predictive Off). setup → run to completion. Expect "shock active?" *false*
+   for the entire run, and smooth growth in cold-chain referrals and waste.
+2. `demand-shocks?` **On**, `grid-failure-rate` **0.5**. setup → run to completion.
    Expect "% time on paper" climbing toward 75–95%, "req fill rate" clearly
    below the step-1 run, "donor bailouts" often nonzero, and Plot 1 showing
    long flat shelves in the "recorded" pen (frozen ledger) while the "true"
@@ -134,14 +134,13 @@ across three paired runs, the predictive arm is inert.*
 ## Check 4 — Calibration benchmark replication (validation)
 
 1. All defaults (grid 0.1, severity 1, predictive Off, shocks On).
-2. setup → run to day 90.
+2. setup → run to completion (day 3,650).
 3. Expect "pub avail % (avg)" in the **40–50%** band (benchmark: WHO 2015
    figure of 43%) and "pub f-stockout %" in roughly **50–65%**.
 
-**Expect these to be fairly tight** — see check 5 for why. Over 90 days the
-averaging is across ~4,300 line-days rather than 48,000, so expect a little
-more run-to-run movement than the old long runs showed, but still convergence
-near the same value.
+**Expect these to be tight** — see check 5 for why. Over 3,650 days the average
+is taken across ~175,000 commodity-line-days, so it converges hard on the same
+value every run. That stability is correct behaviour, not a bug.
 
 *If availability sits far outside the band, adjust the `cc-push-target` list in
 `setup-parameters` — one line, tagged [CALIBRATED]. Each entry ≈ class daily
@@ -155,7 +154,7 @@ Worth running because the calibration monitors look suspiciously stable, and
 you should be able to explain why to a reviewer.
 
 **Why the stable ones are stable.** `pub avail %` is a running average over
-12 clinics × 4 commodity lines × 90 days ≈ **4,300 line-days**. By the law
+12 clinics × 4 commodity lines × 3,650 days ≈ **175,000 line-days**. By the law
 of large numbers its standard error is a fraction of a percentage point, so it
 converges to the same value every run. On top of that, the mechanism driving
 it is nearly deterministic: push to target every 30 days, deplete at a
@@ -165,12 +164,12 @@ the same number each run is exactly what a correctly working stochastic model
 does — the same reason a fair coin flipped 48,000 times always lands near 50%.
 
 **How to confirm the randomness is genuinely there.** Run the model 3 times
-with identical settings (defaults, 90 days) and compare these
+with identical settings (defaults, full 3,650-day run) and compare these
 *low-aggregation* monitors, which should visibly differ each run:
 
 | Monitor | Expect across runs |
 |---|---|
-| **shock days** (`total-shock-days`) | Varies 7–21 by design — one shock per run, duration drawn at random. |
+| **shock days** (`total-shock-days`) | Wide swings. Shocks arrive at ~2/year with 7–21 day durations, so a ten-year run lands anywhere from roughly 150 to 400 shock-days. |
 | **donor bailouts** | Often differs, sometimes 0 vs several |
 | **static zero episodes** | Should differ by several percent |
 | **mean RDF capital** | Should differ noticeably |
@@ -196,7 +195,7 @@ Unlike check 4, **nothing in the model was tuned to hit these**. They are
 predictions, which makes them real validation rather than a consistency check.
 
 1. Defaults (grid 0.1, severity 1, predictive Off, shocks On). setup → run to
-   day 90.
+   completion.
 2. Read two monitors:
 
 | Monitor | Expected | Benchmark |

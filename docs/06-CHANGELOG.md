@@ -303,7 +303,7 @@ the predictive arm could not compensate for latency, which is precisely the
 mitigation your question asks about.
 
 ### N5. Unmet-demand decomposition
-`ngo-unmet-patients` is now split into `ngo-unmet-own` and
+`ngo-unmet-patients` is now split into `ngo-unmet-walkin` and
 `ngo-unmet-diverted`. The diverted component is driven by the (latency-free)
 public push cycle and is large, so it dilutes the latency signal in the
 headline number. Reporting both lets you show the effect cleanly instead of

@@ -138,13 +138,13 @@ This is the part that produces your actual results. You only do it once.
 
 ```
 ngo-unmet-patients
-ngo-unmet-own
+ngo-unmet-walkin
 ngo-unmet-diverted
 waste-value-total
 lines-ever-zero
 zero-episode-total
+zero-episodes-per-line
 static-zero-episodes
-satellite-zero-episodes
 public-zero-episodes
 completely-unserved-patients
 coldchain-unserved
@@ -155,10 +155,14 @@ reqs-lost-count
 requisition-fill-rate
 public-availability-pct
 public-facility-stockout-pct
+public-stockout-inequality
+ngo-static-stockout-pct
+waste-pct-of-value
 pct-time-on-paper
 mean-ledger-age-days
 mean-ledger-gap-c2
 mean-rdf-capital
+mean-unverified-revenue
 donor-bailouts-total
 total-shock-days
 ```
@@ -167,7 +171,7 @@ total-shock-days
    *(Important — leaving it checked produces a 700,000-row file instead of a
    640-row one.)*
 8. **Setup commands** should say `setup`. **Go commands** should say `go`.
-9. In **Time limit**, type `1095`.
+9. In **Time limit**, type `3650`.
 10. Leave everything else alone. Click **OK**.
 
 ✅ **You should see:** `latency-experiment` now listed in the BehaviorSpace
@@ -261,7 +265,8 @@ real run is that it takes longer. Move on to Step 6.
    **unchecked** — with 640 runs this makes a large difference to the total
    time.
 4. Click **OK**.
-5. It will now run 640 simulations. **This takes roughly 20–60 minutes.**
+5. It will now run 640 simulations. **This takes roughly 1–3.5 hours** at a
+   ten-year horizon.
    A progress window shows how many runs are done. Leave the computer alone
    and go do something else.
 
@@ -282,12 +287,12 @@ used; the rest are the results.
 The three comparisons your paper needs, all done by averaging the 20 runs in
 each condition:
 
-1. **Does latency cause harm?** Compare `ngo-unmet-own` and
+1. **Does latency cause harm?** Compare `ngo-unmet-walkin` and
    `static-zero-episodes` across `info-latency-severity` 0 → 1 → 2 → 3, with
    `predictive-modeling?` = false. Expect them to rise as severity rises.
 2. **Does prediction help?** At each severity level, compare
    `predictive-modeling?` true vs false. Expect `static-zero-episodes` and
-   `ngo-unmet-own` to fall.
+   `ngo-unmet-walkin` to fall.
 3. **Does prediction fix the data problem? (No — and this is your key finding.)**
    Same comparison, but look at `mean-ledger-age-days` and `pct-time-on-paper`.
    Expect these to be *identical* across the two arms. That is the evidence
