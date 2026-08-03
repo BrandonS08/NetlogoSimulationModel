@@ -175,7 +175,7 @@ globals [
   total-expired-units total-expired-units-coldchain
   waste-value-total             ;; outcome 2: BDT value of expired/wasted inventory
   reqs-fulfilled-count reqs-partial-count reqs-lost-count
-  requisition-log               ;; list of per-requisition outcome rows (gap 4)
+  requisition-log               ;; one row per resolved requisition, for the CSV export
   donor-bailouts-total
   avail-line-days total-line-days          ;; running public availability accounting
   static-stockout-line-days static-line-days   ;; same, for NGO static commodity lines
