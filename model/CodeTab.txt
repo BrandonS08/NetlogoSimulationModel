@@ -1306,12 +1306,13 @@ end
 to run-ngo-c1-push
   ;; SMC/donor C1 push to NGO statics, first-come-first-served on the same logic
   let hub one-of regional-hubs
-  foreach (shuffle (sort ngo-statics)) [ st ->
+  ;; NB: not named "st" — that is NetLogo's abbreviation for show-turtle
+  foreach (shuffle (sort ngo-statics)) [ clinic ->
     let avail [ smc-c1-stock ] of hub
     let grant min (list ngo-class1-push-amount avail)
     if grant > 0 [
-      ask st [ set stock-on-hand replace-item 0 stock-on-hand
-                   ((item 0 stock-on-hand) + grant) ]
+      ask clinic [ set stock-on-hand replace-item 0 stock-on-hand
+                       ((item 0 stock-on-hand) + grant) ]
       ask hub [ set smc-c1-stock (avail - grant) ]
       set ngo-goods-received-value (ngo-goods-received-value + (grant * class1-unit-value))
     ]
