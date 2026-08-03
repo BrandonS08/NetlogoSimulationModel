@@ -127,12 +127,12 @@ This is the part that produces your actual results. You only do it once.
 
 ```
 ["environmental-latency-severity" 0 1 2 3]
+["bureaucratic-latency-severity" 0 1 2 3]
 ["predictive-modeling?" true false]
-["grid-failure-rate" 0.05 0.25]
 ["demand-shocks?" true false]
 ```
 
-5. Set **Repetitions** to `20`.
+5. Set **Repetitions** to `10`.
 6. Find the box labelled **Measure runs using these reporters**. Delete
    everything in it, and type these lines exactly (one per line):
 
@@ -163,6 +163,7 @@ mean-ledger-age-days
 mean-ledger-gap-c2
 mean-rdf-capital
 mean-unverified-revenue
+effective-bureaucratic-lag
 donor-bailouts-total
 total-shock-days
 ```
@@ -287,13 +288,19 @@ used; the rest are the results.
 The three comparisons your paper needs, all done by averaging the 20 runs in
 each condition:
 
-1. **Does latency cause harm?** Compare `ngo-unmet-walkin` and
+1. **Which kind of latency causes more harm?** Compare the swing in
+   `ngo-unmet-walkin` and `static-zero-episodes` when
+   `environmental-latency-severity` goes 0→3 against the swing when
+   `bureaucratic-latency-severity` goes 0→3. Whichever is larger is the lever
+   your policy discussion should lead with — connectivity, or approval
+   bureaucracy.
+2. **Does latency cause harm at all?** Compare `ngo-unmet-walkin` and
    `static-zero-episodes` across `environmental-latency-severity` 0 → 1 → 2 → 3, with
    `predictive-modeling?` = false. Expect them to rise as severity rises.
-2. **Does prediction help?** At each severity level, compare
+3. **Does prediction help?** At each severity level, compare
    `predictive-modeling?` true vs false. Expect `static-zero-episodes` and
    `ngo-unmet-walkin` to fall.
-3. **Does prediction fix the data problem? (No — and this is your key finding.)**
+4. **Does prediction fix the data problem? (No — and this is your key finding.)**
    Same comparison, but look at `mean-ledger-age-days` and `pct-time-on-paper`.
    Expect these to be *identical* across the two arms. That is the evidence
    that predictive modeling improves reorder timing without repairing

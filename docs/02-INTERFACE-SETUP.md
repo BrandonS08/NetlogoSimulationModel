@@ -141,7 +141,7 @@ as shown, type the **Display name**, set **Decimal places**, click **OK**.
 |---|----------------------------------|--------------------|----------|-------------------|
 | 1 | `ngo-unmet-patients`             | unmet @ NGO        | 0 | Outcome 1: patients an NGO facility could not serve from stock |
 | 2 | `waste-value-total`              | waste value (BDT)  | 0 | Outcome 2: BDT value of all expired/spoiled inventory |
-| 3 | `lines-ever-zero`                | lines ever zero    | 0 | Outcome 3: facility×commodity lines that have hit zero at least once (max 84) |
+| 3 | `lines-ever-zero`                | lines ever zero    | 0 | Outcome 3: facility×commodity lines that have hit zero at least once (max 57) |
 | 4 | `zero-episode-total`             | zero episodes      | 0 | Outcome 4: total distinct zero-stock episodes across all lines |
 | 5 | `completely-unserved-patients`   | fully unserved     | 0 | Patients who got nothing anywhere (NGO and private both failed) |
 | 6 | `coldchain-unserved`             | cold-chain refer   | 0 | P3 patients referred upward (no NGO/private substitute exists) |

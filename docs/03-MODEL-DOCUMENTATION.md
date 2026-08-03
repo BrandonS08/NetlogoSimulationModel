@@ -295,7 +295,8 @@ entire diversion cascade dead-ended for the rest of a 10-year run
    procurement value. Unit counts are kept separately
    (`total-expired-units`, `total-expired-units-coldchain`).
 3. **`lines-ever-zero`** — a "line" is one commodity class at one facility
-   (12 CCs × 4) + (3 statics × 3) + (9 satellites × 3) = 84 lines. This counts
+   (12 CCs × 4) + (3 statics × 3) = 57 lines. Satellites are excluded — they
+   hold nothing between rollouts, so an empty team is normal operation. This counts
    how many ever hit zero during the run.
 4. **`zero-episode-total`** — total number of distinct zero-stock episodes
    (a line entering zero counts once until it recovers above zero), with

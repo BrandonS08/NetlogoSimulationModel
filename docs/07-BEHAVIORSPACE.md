@@ -5,33 +5,42 @@ replications and dispersion. This sets that up.
 
 ## What the experiment does
 
-It runs every combination of four factors, 20 times each with different random
+It runs every combination of four factors, 10 times each with different random
 seeds, and writes one row per run to a spreadsheet file.
 
 | Factor | Values | Why |
 |---|---|---|
-| `environmental-latency-severity` | 0, 1, 2, 3 | The latency dose-response — the primary independent variable. 0 is the perfect-information control. |
+| `environmental-latency-severity` | 0, 1, 2, 3 | Technical latency: dispensation lag, sync lag, manual-record error. 0 is the perfect-information control. |
+| `bureaucratic-latency-severity` | 0, 1, 2, 3 | Administrative latency: the central approval delay. 0 is instant approval. |
 | `predictive-modeling?` | true, false | The mitigation arm — the second half of your research question. |
-| `grid-failure-rate` | 0.05, 0.25 | Low vs high infrastructure disruption, which drives paper fallback. |
 | `demand-shocks?` | true, false | With and without environmental shocks. |
 
-**`bureaucratic-latency-severity` is deliberately NOT varied in this design.**
-It stays at its default of 1, so every run carries the baseline two-day
-approval delay and the experiment isolates the environmental dial. If you want
-the environmental-vs-bureaucratic comparison that the new slider exists for,
-add a fifth line to the vary box:
+4 × 4 × 2 × 2 = 64 conditions × 10 replications = **640 runs** of 3,650 days
+(10 years).
 
-```
-["bureaucratic-latency-severity" 0 1 2 3]
-```
+**Why this design, and what changed.** The earlier version varied
+`grid-failure-rate` (0.05 / 0.25) and used 20 replications. It has been
+replaced by one that varies `bureaucratic-latency-severity` instead, at 10
+replications — **the same 640 runs and the same runtime**. Two reasons:
 
-That multiplies the design by four — **2,560 runs**, so budget 4–14 hours, or
-drop repetitions to 10 and `grid-failure-rate` to a single value to bring it
-back to roughly the current runtime. This is the comparison that answers
-"which lever matters more", so it is worth running once properly.
+1. Without the bureaucratic dial in the design, the environmental/bureaucratic
+   split cannot be analysed at all, and answering *which lever matters more*
+   is the reason that dial exists.
+2. Ten replications is defensible at a ten-year horizon: each run already
+   averages over ~20 shock events, so between-run variance is far smaller than
+   it was on short runs. Report the standard deviations and the reader can see
+   the precision you achieved.
 
-4 × 2 × 2 × 2 = 32 conditions × 20 replications = **640 runs** of 3,650 days
-(10 years). That is enough for means with confidence intervals in every cell.
+`grid-failure-rate` is held at its default of **0.1** for every run. It is not
+dropped from the study — run it as a separate one-factor sensitivity sweep
+(`["grid-failure-rate" 0.05 0.1 0.25 0.4]`, everything else at default, 10
+reps = 40 runs, a few minutes) and report it alongside. Two clean experiments
+read better than one bloated one.
+
+*If you would rather keep the original design, put `grid-failure-rate` back and
+drop `bureaucratic-latency-severity` — but then say in your write-up that the
+bureaucratic dial was held constant, because a reviewer will ask why a
+parameter you introduced was never varied.*
 
 ## Creating it (click by click)
 
@@ -42,12 +51,12 @@ back to roughly the current runtime. This is the comparison that answers
 
 ```
 ["environmental-latency-severity" 0 1 2 3]
+["bureaucratic-latency-severity" 0 1 2 3]
 ["predictive-modeling?" true false]
-["grid-failure-rate" 0.05 0.25]
 ["demand-shocks?" true false]
 ```
 
-4. **Repetitions**: `20`
+4. **Repetitions**: `10`
 5. Leave **Sequential run order** checked.
 6. In **Measure runs using these reporters**, paste exactly this (one per line):
 
@@ -78,6 +87,7 @@ mean-ledger-age-days
 mean-ledger-gap-c2
 mean-rdf-capital
 mean-unverified-revenue
+effective-bureaucratic-lag
 donor-bailouts-total
 total-shock-days
 ```
@@ -96,7 +106,7 @@ trajectory-independent measure of information quality — see
 different claims.
 
 7. **Uncheck** "Measure runs at every step". You want one row per run, not
-   1,095 rows per run — leaving this checked produces a 700,000-row file.
+   3,650 rows per run — leaving this checked produces a multi-million-row file.
 8. **Setup commands**: `setup`   **Go commands**: `go`
 9. **Stop condition**: leave empty.
 10. **Time limit**: `3650`
@@ -124,7 +134,7 @@ import) so the column-name row is first. Each row is one run: the factor
 columns tell you the condition, the metric columns the results.
 
 For each condition, compute the **mean and standard deviation** of each
-outcome across the 20 replications. The three comparisons your paper needs:
+outcome across the 10 replications. The three comparisons your paper needs:
 
 1. **Latency dose-response** — outcomes vs `environmental-latency-severity`, holding
    `predictive-modeling?` false. Expect unmet demand, waste and zero-episodes
@@ -136,18 +146,26 @@ outcome across the 20 replications. The three comparisons your paper needs:
    prediction fixes timing without fixing data accuracy. (`mean-ledger-gap-c2`
    will also fall; that is a genuine secondary result about staleness becoming
    *less costly*, not evidence of better data. Do not present it as the latter.)
-3. **Interaction** — whether the predictive benefit shrinks as severity rises
+3. **Which lever matters more** — the comparison this design exists for. Hold
+   everything else fixed and compare the effect of moving
+   `environmental-latency-severity` from 0→3 against moving
+   `bureaucratic-latency-severity` from 0→3, on `ngo-unmet-walkin` and
+   `static-zero-episodes`. Whichever produces the larger swing is the lever
+   your policy discussion should lead with. Also check the interaction: if
+   fixing one only helps when the other is already low, that is a finding in
+   itself — it would mean piecemeal reform does not work.
+4. **Interaction with prediction** — whether the predictive benefit shrinks as severity rises
    (does forecasting still help when the underlying data is badly degraded?).
    This is the most interesting result the design can produce, and it directly
    answers "to what extent can predictive demand modeling mitigate these
    effects under conditions of information delay."
 
 Report means with standard deviations or 95% confidence intervals
-(`mean ± 1.96 × SD / √20`), never single-run numbers.
+(`mean ± 1.96 × SD / √10`), never single-run numbers.
 
 ## Note on the seed
 
 BehaviorSpace assigns each run a different random seed automatically, so the
-20 repetitions are genuinely independent. Do not add a `random-seed` call to
+10 repetitions are genuinely independent. Do not add a `random-seed` call to
 `setup` — that would make every replication identical and silently destroy the
 variance estimate.
