@@ -52,8 +52,7 @@ lam = set(re.findall(r'\[\s*([a-zA-Z][\w?!*-]*)\s*->', clean))
 for m in re.finditer(r'\[\s*\[([^\]]*)\]\s*->', clean):
     lam |= set(m.group(1).split())
 
-WIDGETS = {'grid-failure-rate','environmental-latency-severity',
-           'bureaucratic-latency-severity','predictive-modeling?','demand-shocks?'}
+WIDGETS = set()   # none: all five research parameters are now real globals
 BUILTIN_VARS = set("""who color heading xcor ycor shape label label-color breed hidden? size
 pen-size pen-mode pxcor pycor pcolor plabel plabel-color end1 end2 link-length
 thickness tie-mode""".split())

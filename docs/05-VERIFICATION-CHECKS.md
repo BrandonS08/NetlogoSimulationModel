@@ -10,8 +10,13 @@ reading code.
 > metric that cannot test the claim it was aimed at. Both errors were in the
 > *instructions*, not in the model. Details in `06-CHANGELOG.md` Part 5.
 
-Before starting: complete `02-INTERFACE-SETUP.md`, including the monitors
-added in Phase D.2.
+Before starting: paste the code and make the buttons in `00-START-HERE.md`
+Step 3c. Monitors are optional but make these checks much easier to read.
+
+> **Setting conditions.** Every check below names a `scenario-` button. Each
+> one does a full setup and applies its whole condition in a single click, so
+> there are no sliders to set and nothing to mis-type. If you prefer, type the
+> equivalent `set ...` lines into the Command Center instead — both are listed.
 
 > **Run length.** The model runs for **3,650 days (ten years)** and stops on
 > its own. For most checks below you do not need to wait for the end — the
@@ -38,8 +43,8 @@ baseline rate. So with shocks On, clinics still lose connectivity even at
 freezes during those episodes. That is correct model behavior; the original
 version of this check simply did not describe a clean control condition.
 
-**Steps:** set the three controls, click **setup**, then **go**. Watch for a few
-hundred days — that is plenty for this check — then stop.
+**Steps:** click `scenario-perfect-info`, then **go**. Watch for a few hundred
+days — plenty for this check — then click **go** again to stop.
 
 **Expected:**
 - "C2 ledger gap" = **0.0** for the whole run
@@ -49,8 +54,7 @@ hundred days — that is plenty for this check — then stop.
 - stockouts still occur (public availability still ~43%) — scarcity comes from
   push rigidity, not information failure
 
-**Then the opposite extreme:** `environmental-latency-severity` = **3**,
-`grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run ~500 days.
+**Then the opposite extreme:** click `scenario-worst-case`, run ~500 days.
 Expect a ledger gap in the hundreds of units, ledger age well above 9 days,
 "% time on paper" above 60%, and clearly worse unmet demand.
 
@@ -81,12 +85,10 @@ date the ledger is. That depends only on connectivity and
 statistically identical across the two arms.
 
 **Steps:**
-1. `environmental-latency-severity` = 2, `grid-failure-rate` = 0.25, `demand-shocks?`
-   On, `predictive-modeling?` **Off**.
+1. Click `scenario-predictive-off`.
 2. setup → go → let it run to completion (day 3,650). Record: **static zero episodes**,
    **unmet @ NGO**, **ledger age (days)**, **% time on paper**.
-3. Flip `predictive-modeling?` **On**. setup → go → run to completion. Record
-   the same four.
+3. Click `scenario-predictive-on` → go → run to completion. Record the same four.
 4. **Repeat both arms at least 3 times** and compare averages, not single runs.
    A ten-year run averages over ~20 shock events, so it is far less noisy than a
    short one, but treat differences under ~10% in a single pair as meaningless.
@@ -133,8 +135,8 @@ across three paired runs, the predictive arm is inert.*
 
 ## Check 4 — Calibration benchmark replication (validation)
 
-1. All defaults (grid 0.1, severity 1, predictive Off, shocks On).
-2. setup → run to completion (day 3,650).
+1. Click `scenario-baseline` (or just `setup`).
+2. Press **go** and let it run to completion (day 3,650).
 3. Expect "pub avail % (avg)" in the **40–50%** band (benchmark: WHO 2015
    figure of 43%) and "pub f-stockout %" in roughly **50–65%**.
 

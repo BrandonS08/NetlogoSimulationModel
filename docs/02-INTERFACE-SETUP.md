@@ -4,15 +4,10 @@ This document lists **every widget the model needs**, with exact names, ranges
 and defaults, and step-by-step click instructions. Follow the phases **in
 order** — the code cannot compile until Phase A is done.
 
-Widget decision (from Part D of the handoff): the research parameters
-(`grid-failure-rate`, `environmental-latency-severity`,
-`bureaucratic-latency-severity`, `predictive-modeling?`) are now
-**real Interface widgets**, not values hard-coded in `setup`. This was not
-optional: BehaviorSpace (deliverable 5) can only vary parameters that live in
-widgets without `setup` overwriting them. A fourth widget, `demand-shocks?`,
-was added so you can switch environmental shocks off for controlled
-comparisons — your research question explicitly contrasts conditions with and
-without environmental shocks, so you need a clean off switch.
+**Read Phase A first — it is now empty, and that is the point.** The model
+needs no widgets to compile or run. Everything below is optional: buttons make
+it clickable, monitors and plots make it watchable. BehaviorSpace needs none of
+it.
 
 > **General mechanics, once:** to add any widget in NetLogo, go to the
 > **Interface** tab and **right-click on an empty white area**, then choose
@@ -23,83 +18,38 @@ without environmental shocks, so you need a clean off switch.
 
 ---
 
-## Phase A — the five parameter widgets (do this BEFORE pasting the code)
+## Phase A — NOTHING TO DO (this phase is obsolete)
 
-### A1. Slider: `grid-failure-rate`
-1. Right-click empty space → **Slider**.
-2. In **Global variable**, type exactly: `grid-failure-rate`
-3. **Minimum**: `0`   **Increment**: `0.01`   **Maximum**: `0.5`   **Value**: `0.1`
-4. Leave "vertical?" unchecked. Click **OK**.
+**The code no longer requires any Interface widgets.** It compiles in a
+completely empty NetLogo model.
 
-*What it is:* the probability, each day, that an NGO static clinic has no
-connectivity (power/network failure). At the default 0.1, a clinic is offline
-roughly one day in ten — this is the environmental-infrastructure factor from
-your paper's information-latency framework, and one of the two main
-experimental dials.
+The five research parameters — `grid-failure-rate`,
+`environmental-latency-severity`, `bureaucratic-latency-severity`,
+`predictive-modeling?` and `demand-shocks?` — used to be sliders and switches
+that had to exist, with exactly matching names, before the code would compile.
+That coupling caused repeated paste failures: rename a parameter and every line
+mentioning it errored until the widget was renamed to match. They are now
+ordinary variables inside the code, given their defaults by `setup`.
 
-### A2. Slider: `environmental-latency-severity`
-1. Right-click empty space → **Slider**.
-2. **Global variable**: `environmental-latency-severity`
-3. **Minimum**: `0`   **Increment**: `1`   **Maximum**: `3`   **Value**: `1`
-4. Click **OK**.
+**If you already built those widgets, delete them** — a widget and a code
+variable cannot share a name, and the paste will fail with *"There is already a
+global variable called GRID-FAILURE-RATE"*. See `00-START-HERE.md` Step 0a.
 
-*What it is:* a multiplier applied to the dispensation lag and sync lag (the
-first two stages of your paper's three-stage latency decomposition) and to the
-paper-record error rate. `0` = a perfect, instantly-synced information system
-(the control condition); `1` = baseline; `3` = severely degraded digitization.
+You change parameters in one of three ways now, none involving a slider:
 
-### A2b. Slider: `bureaucratic-latency-severity`
-1. Right-click empty space → **Slider**.
-2. **Global variable**: `bureaucratic-latency-severity`
-3. **Minimum**: `0`   **Increment**: `0.25`   **Maximum**: `3`   **Value**: `1`
-4. Click **OK**.
-
-*What it is:* the **second, independent** latency dial. It scales stage 3 of
-your paper's framework — central processing lag, the time regional
-administrators take to evaluate synced logs and issue purchase orders — which
-§2.2.4 describes as *"primarily caused by human rather than environmental
-lag."* The slider above (`environmental-latency-severity`) covers stages 1 and
-2, which are technical in origin. Separating them is what lets you ask which
-policy lever matters more: fixing connectivity, or fixing approval bureaucracy.
-
-At the default of `1` the model behaves exactly as it did before this slider
-existed. `0` means instant approval; `3` means approval takes three times as
-long as the baseline two days.
-
-*Note on the step size:* this slider steps in 0.25, while
-`environmental-latency-severity` steps in whole numbers. That is deliberate —
-you asked for the finer step here — but if you would rather they match, edit
-either slider's Increment field.
-
-### A3. Switch: `predictive-modeling?`
-1. Right-click empty space → **Switch**.
-2. **Global variable**: `predictive-modeling?`
-3. Click **OK**. Make sure the switch shows **Off** (click it if not).
-
-*What it is:* the second half of your research question. When On, each NGO
-clinic projects its forecast demand across its known procurement and data
-delays and reorders earlier. Critically, the forecast is applied **on top of
-the lagged ledger** — it improves reorder *timing* but cannot repair *data
-accuracy*. That separation is deliberate and is preserved in the code.
-
-### A4. Switch: `demand-shocks?`
-1. Right-click empty space → **Switch**.
-2. **Global variable**: `demand-shocks?`
-3. Click **OK**. Make sure it shows **On**.
-
-*What it is:* enables the monsoon/flood shock system (probabilistic onset,
-7–21 day duration, elevated demand and elevated grid-failure risk). Turn Off
-for shock-free control runs.
-
----
+| Method | How | Best for |
+|---|---|---|
+| Scenario buttons | Click `scenario-perfect-info`, etc. | The verification checks — one click sets a whole named condition |
+| Command Center | Type `set environmental-latency-severity 3` | Ad-hoc exploration |
+| BehaviorSpace | Vary them in the experiment | Data collection |
 
 ## Phase B — paste the code
 
-Now follow `01-PASTE-THIS-CODE.md`: paste the whole code block into the
-**Code** tab and click **Check**. It should compile silently. If you see
-*"Nothing named GRID-FAILURE-RATE has been defined"* (or similar), one of the
-five Phase A widgets is missing or its name has a typo — the names must match
-letter for letter, including the `?` on the two switches.
+Copy from `model/CodeTab.txt`, paste into the **Code** tab, click **Check**.
+It should compile silently with nothing built on the Interface tab.
+
+If you see *"There is already a global variable called ..."*, an old slider or
+switch is still present — delete it (Step 0a) and re-check.
 
 ---
 
@@ -120,6 +70,24 @@ letter for letter, including the `?` on the two switches.
 ### C3. Button: go once (optional but useful for slow-motion checking)
 1. Right-click → **Button**. **Commands**: `go`
 2. **Display name**: `go once`. Leave Forever **unchecked**. Click **OK**.
+
+### C3b. Buttons: the scenario presets (recommended)
+
+One button per verification condition. Right-click → **Button**, put the
+command in **Commands**, leave Forever unchecked.
+
+| Commands | Used by |
+|---|---|
+| `scenario-baseline` | check 4, calibration |
+| `scenario-perfect-info` | check 1, control condition |
+| `scenario-worst-case` | check 1, opposite extreme |
+| `scenario-predictive-off` | check 2, arm A |
+| `scenario-predictive-on` | check 2, arm B |
+| `scenario-bureaucracy-only` | environmental fixed, approval slow |
+| `scenario-connectivity-only` | approval instant, connectivity bad |
+
+Each performs a full setup and applies its whole condition, so you click one
+button and then **go**.
 
 ### C4. Button: export log (optional)
 1. Right-click → **Button**. **Commands**: `export-requisition-log`

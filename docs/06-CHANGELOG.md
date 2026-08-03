@@ -465,3 +465,60 @@ one helps when the other is still bad, which would mean piecemeal reform fails.
 Stale figures in the documentation: tracked commodity lines stated as 84 in two
 places when satellites were excluded and the true count is 57, and a
 BehaviorSpace warning citing 1,095 rows per run at a 3,650-day horizon.
+
+
+---
+
+## Part 7 — Interface widgets removed as a dependency
+
+### The recurring failure this fixes
+Four separate paste failures traced to the same root cause. Five globals were
+supplied by Interface widgets rather than declared in the code, so the Code tab
+could only compile if those widgets already existed with letter-perfect names.
+Every parameter rename then required a synchronized manual widget edit, and any
+mismatch produced *"Nothing named X has been defined"* on every line mentioning
+the name — which reads, correctly, as the code being "riddled with errors" when
+the code is fine and one widget is misnamed.
+
+The design was defensible in the abstract and wrong for this project: it put a
+fragile manual step in front of every single code delivery.
+
+### What changed
+All five research parameters — `grid-failure-rate`,
+`environmental-latency-severity`, `bureaucratic-latency-severity`,
+`predictive-modeling?`, `demand-shocks?` — are now ordinary globals declared in
+the code. **The file compiles in a completely empty NetLogo model.** No widget
+is required to compile or to run.
+
+Because `clear-all` wipes globals, and BehaviorSpace assigns them *before*
+setup runs, the setup path is split:
+
+| Procedure | Behaviour | Used by |
+|---|---|---|
+| `setup` | `clear-all`, restore the five to their defaults, build | Interactive runs |
+| `setup-experiment` | Save the five into locals, `clear-all`, restore them, build | **BehaviorSpace** |
+
+Local `let` variables survive `clear-all` where globals do not; that is the
+mechanism. **BehaviorSpace must use `setup-experiment` as its setup command.**
+With plain `setup` every run would silently reset to defaults and produce
+identical results across all conditions — a failure that reports no error at
+all, which is why it is called out in both `00-START-HERE.md` and `07`.
+
+### Named scenarios replace slider fiddling
+Seven `scenario-` procedures each perform a full setup and apply one named
+condition: `scenario-perfect-info`, `scenario-worst-case`,
+`scenario-predictive-off`, `scenario-predictive-on`, `scenario-baseline`,
+`scenario-bureaucracy-only`, `scenario-connectivity-only`. A verification check
+is now one button click instead of setting three or four controls by hand. This
+is safe because none of the five parameters is read during setup — they are all
+consumed at runtime — so applying them after the build is equivalent.
+
+The last two are new and exist because of the latency split in Part 6: they
+isolate bureaucratic latency with connectivity perfect, and the reverse.
+
+### Migration cost, once
+A widget and a global cannot share a name, so existing sliders and switches
+must be **deleted** or the paste fails with *"There is already a global
+variable called GRID-FAILURE-RATE"*. Deleting five widgets, or starting from
+`File → New`, is a one-time step. After it, no code delivery ever again depends
+on Interface state.

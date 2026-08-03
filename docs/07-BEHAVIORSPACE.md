@@ -107,7 +107,13 @@ different claims.
 
 7. **Uncheck** "Measure runs at every step". You want one row per run, not
    3,650 rows per run — leaving this checked produces a multi-million-row file.
-8. **Setup commands**: `setup`   **Go commands**: `go`
+8. **Setup commands**: **`setup-experiment`**   **Go commands**: `go`
+
+   > ⚠️ It must be `setup-experiment`, not `setup`. The five research
+   > parameters are ordinary globals, and `clear-all` inside plain `setup`
+   > would wipe whatever BehaviorSpace assigned before restoring the
+   > defaults — every run would come out identical and you would not be
+   > told. `setup-experiment` preserves them across `clear-all`.
 9. **Stop condition**: leave empty.
 10. **Time limit**: `3650`
 11. Click **OK**, then **Run**.

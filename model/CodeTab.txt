@@ -8,12 +8,21 @@
 ;; error-corrupted RECORDED-STOCK-LEDGER, never the true STOCK-ON-HAND.
 ;; The gap between the two is the object of study.
 ;;
-;; IMPORTANT — INTERFACE DEPENDENCY: five globals are defined by Interface
-;; widgets, NOT in this file:  grid-failure-rate (slider),
-;; environmental-latency-severity (slider), bureaucratic-latency-severity
-;; (slider), predictive-modeling? (switch), demand-shocks? (switch).
-;; Create those five widgets BEFORE pasting this code, or the compiler will
-;; report "Nothing named GRID-FAILURE-RATE". See docs/02-INTERFACE-SETUP.md.
+;; NO INTERFACE WIDGETS ARE REQUIRED. This file compiles on its own, in an
+;; empty NetLogo model, with nothing built on the Interface tab. The five
+;; research parameters are ordinary globals declared below and given their
+;; defaults by SETUP, so a paste can never fail with "Nothing named ... has
+;; been defined". Add buttons when you want to click things; add monitors and
+;; plots when you want to watch things. Neither is needed to compile or run.
+;;
+;; TO CHANGE A RESEARCH PARAMETER you have three options, all equivalent:
+;;   1. Click one of the SCENARIO- procedures below (easiest — one click sets
+;;      a whole named condition, e.g. scenario-perfect-info).
+;;   2. Type it into the Command Center, e.g.
+;;        set environmental-latency-severity 3
+;;   3. Edit the defaults in SET-RESEARCH-DEFAULTS.
+;; BehaviorSpace varies them directly; it must use SETUP-EXPERIMENT as its
+;; setup command (see docs/07) so its assignments are not overwritten.
 ;;
 ;; THE TWO LATENCY DIALS ARE DELIBERATELY SEPARATE (paper 2.2.4).
 ;;   environmental-latency-severity — scales stages 1 and 2 of the paper's
@@ -132,9 +141,16 @@ requisitions-own [
 ]
 
 globals [
-  ;; NOTE: grid-failure-rate, environmental-latency-severity,
-  ;; bureaucratic-latency-severity, predictive-modeling? and demand-shocks?
-  ;; are Interface widgets and intentionally NOT listed here.
+  ;; ---- the five research parameters ----
+  ;; Ordinary globals, NOT Interface widgets. SETUP gives them the defaults in
+  ;; SET-RESEARCH-DEFAULTS; SETUP-EXPERIMENT preserves whatever BehaviorSpace
+  ;; assigned. If you ever add sliders with these names, DELETE the lines below
+  ;; first — NetLogo will not allow a widget and a global to share a name.
+  grid-failure-rate               ;; daily probability an NGO static loses connectivity
+  environmental-latency-severity  ;; scales latency stages 1-2 + manual error rate
+  bureaucratic-latency-severity   ;; scales latency stage 3 (central approval)
+  predictive-modeling?            ;; forecast-based reorder timing on/off
+  demand-shocks?                  ;; monsoon/flood shock system on/off
 
   ;; ---- economics (BDT) ----
   class2-unit-cost class2-retail-price
@@ -207,14 +223,104 @@ globals [
 ;; SETUP
 ;; ============================================================================
 
+;; Interactive setup: fresh world, research parameters back to their defaults.
 to setup
   clear-all
+  set-research-defaults
+  build-model
+  reset-ticks
+end
+
+;; BehaviorSpace setup command. Identical to SETUP except that it PRESERVES the
+;; five research parameters across CLEAR-ALL, which would otherwise wipe them
+;; back to zero and silently discard whatever the experiment assigned.
+;; (Local LET variables survive clear-all; globals do not. That is the whole
+;; trick here.)
+to setup-experiment
+  let keep-grid    grid-failure-rate
+  let keep-env     environmental-latency-severity
+  let keep-bureau  bureaucratic-latency-severity
+  let keep-predict predictive-modeling?
+  let keep-shocks  demand-shocks?
+  clear-all
+  set grid-failure-rate              keep-grid
+  set environmental-latency-severity keep-env
+  set bureaucratic-latency-severity  keep-bureau
+  set predictive-modeling?           keep-predict
+  set demand-shocks?                 keep-shocks
+  build-model
+  reset-ticks
+end
+
+to set-research-defaults
+  set grid-failure-rate              0.1    ;; ~1 offline day in 10
+  set environmental-latency-severity 1      ;; baseline technical latency
+  set bureaucratic-latency-severity  1      ;; baseline approval delay (2 days)
+  set predictive-modeling?           false  ;; control arm
+  set demand-shocks?                 true   ;; monsoon/flood system active
+end
+
+to build-model
   setup-parameters
   setup-geography
   setup-public-facilities
   setup-ngo-network
   setup-private-retail
-  reset-ticks
+end
+
+;; ---------------------------------------------------------------------------
+;; NAMED SCENARIOS — one click each, so a verification check needs no fiddling
+;; with individual controls. Each does a full SETUP and then applies its
+;; condition. None of the five parameters is read during setup, so applying
+;; them afterwards is safe. Press GO after any of these.
+;; ---------------------------------------------------------------------------
+
+to scenario-baseline           ;; docs/05 check 4 — the calibration run
+  setup
+end
+
+to scenario-perfect-info       ;; docs/05 check 1 — the degenerate control
+  setup
+  set environmental-latency-severity 0
+  set bureaucratic-latency-severity  0
+  set grid-failure-rate              0
+  set demand-shocks?                 false
+end
+
+to scenario-worst-case         ;; docs/05 check 1 — the opposite extreme
+  setup
+  set environmental-latency-severity 3
+  set bureaucratic-latency-severity  3
+  set grid-failure-rate              0.4
+  set demand-shocks?                 true
+end
+
+to scenario-predictive-off     ;; docs/05 check 2 — arm A
+  setup
+  set environmental-latency-severity 2
+  set grid-failure-rate              0.25
+  set predictive-modeling?           false
+end
+
+to scenario-predictive-on      ;; docs/05 check 2 — arm B
+  setup
+  set environmental-latency-severity 2
+  set grid-failure-rate              0.25
+  set predictive-modeling?           true
+end
+
+to scenario-bureaucracy-only   ;; technical latency fixed, approval slow
+  setup
+  set environmental-latency-severity 0
+  set bureaucratic-latency-severity  3
+  set grid-failure-rate              0
+end
+
+to scenario-connectivity-only  ;; approval instant, technical latency bad
+  setup
+  set environmental-latency-severity 3
+  set bureaucratic-latency-severity  0
+  set grid-failure-rate              0.4
 end
 
 to setup-parameters
