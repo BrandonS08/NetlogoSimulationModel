@@ -8,11 +8,25 @@
 ;; error-corrupted RECORDED-STOCK-LEDGER, never the true STOCK-ON-HAND.
 ;; The gap between the two is the object of study.
 ;;
-;; IMPORTANT — INTERFACE DEPENDENCY: four globals are defined by Interface
-;; widgets, NOT in this file:  grid-failure-rate (slider), info-latency-severity
+;; IMPORTANT — INTERFACE DEPENDENCY: five globals are defined by Interface
+;; widgets, NOT in this file:  grid-failure-rate (slider),
+;; environmental-latency-severity (slider), bureaucratic-latency-severity
 ;; (slider), predictive-modeling? (switch), demand-shocks? (switch).
-;; Create those four widgets BEFORE pasting this code, or the compiler will
+;; Create those five widgets BEFORE pasting this code, or the compiler will
 ;; report "Nothing named GRID-FAILURE-RATE". See docs/02-INTERFACE-SETUP.md.
+;;
+;; THE TWO LATENCY DIALS ARE DELIBERATELY SEPARATE (paper 2.2.4).
+;;   environmental-latency-severity — scales stages 1 and 2 of the paper's
+;;     three-stage framework: point-of-dispensation lag, local device
+;;     synchronization lag, and the manual-record error rate. These are
+;;     ENVIRONMENTAL/TECHNICAL in origin: grid failure, bandwidth throttling,
+;;     gaps in frontline digitization.
+;;   bureaucratic-latency-severity — scales stage 3 only: central processing
+;;     lag, which the paper describes as "primarily caused by human rather
+;;     than environmental lag" — the time regional administrators take to
+;;     evaluate synced logs and issue purchase orders.
+;; Keeping them on separate dials is what lets you ask which lever matters
+;; more: fixing connectivity, or fixing approval bureaucracy.
 ;;
 ;; STYLE NOTE: every list extraction or reporter call that sits next to an
 ;; arithmetic operator is wrapped in explicit parentheses, so no expression in
@@ -55,15 +69,19 @@ ngo-statics-own [
   max-stock-capacity      ;; list of 3: order-up-to level
   mean-daily-demand       ;; list of 3: baseline daily demand means (was misnamed average-monthly-cons)
   forecast-daily-demand   ;; list of 3: forecast used only when predictive-modeling? is on
-  demand-history          ;; rolling list (max 14 entries) of daily requested-quantity lists
+  demand-history          ;; rolling list (demand-history-days entries) of daily requested quantities
   requested-today         ;; list of 3: units requested from this facility today
   dispensed-today         ;; list of 3: units actually issued today
   paper-error-accum       ;; list of 3: recording error built up while on paper fallback
 
-  ;; --- three-stage latency (paper framework: dispensation, sync, processing) ---
+  ;; --- three-stage latency (paper 2.2.4: dispensation, sync, processing).
+  ;;     Stages 1-2 are environmental; stage 3 is bureaucratic. ---
   dispensation-lag        ;; days between physical consumption and digital entry
   sync-lag                ;; additional days from routine batching of uploads
-  central-processing-lag  ;; bureaucratic approval days after a reorder triggers
+  central-processing-lag  ;; stage 3: bureaucratic approval days after a reorder
+                          ;; triggers. Scaled at point of use by
+                          ;; bureaucratic-latency-severity, NOT by the
+                          ;; environmental dial — see the header note.
 
   pending-ledger-updates  ;; queue of (due-tick , stock-snapshot) awaiting sync
 
@@ -114,8 +132,9 @@ requisitions-own [
 ]
 
 globals [
-  ;; NOTE: grid-failure-rate, info-latency-severity, predictive-modeling?,
-  ;; demand-shocks? are Interface widgets and intentionally NOT listed here.
+  ;; NOTE: grid-failure-rate, environmental-latency-severity,
+  ;; bureaucratic-latency-severity, predictive-modeling? and demand-shocks?
+  ;; are Interface widgets and intentionally NOT listed here.
 
   ;; ---- economics (BDT) ----
   class2-unit-cost class2-retail-price
@@ -155,7 +174,7 @@ globals [
   public-cluster-centers ngo-cluster-centers
 
   ;; ---- environmental shocks ----
-  shock-active? shock-days-remaining scheduled-shock-day
+  shock-active? shock-days-remaining shock-onset-probability
   shock-duration-min shock-duration-max
   c-shock-multipliers p-shock-multipliers shock-demand-multiplier
   shock-grid-risk-add total-shock-days c1-heat-sensitive-share
@@ -165,7 +184,8 @@ globals [
 
   ;; ---- outcome metrics ----
   ngo-unmet-patients            ;; outcome 1: patients an NGO facility could not serve from stock
-  ngo-unmet-own                 ;;   ...of which: the NGO network's own walk-in/satellite patients
+  ngo-unmet-walkin              ;;   ...of which: the NGO network's own walk-in and
+                                ;;   outreach-session patients (not public spillover)
   ngo-unmet-diverted            ;;   ...of which: patients diverted in from a public CC stockout
   completely-unserved-patients  ;; patients who got nothing anywhere (NGO and private both failed)
   coldchain-unserved            ;; P3 patients referred to higher care (no NGO/private substitute)
@@ -174,7 +194,7 @@ globals [
   total-expired-units total-expired-units-coldchain
   waste-value-total             ;; outcome 2: BDT value of expired/wasted inventory
   reqs-fulfilled-count reqs-partial-count reqs-lost-count
-  requisition-log               ;; list of per-requisition outcome rows (gap 4)
+  requisition-log               ;; one row per resolved requisition, for the CSV export
   donor-bailouts-total
   avail-line-days total-line-days          ;; running public availability accounting
   static-stockout-line-days static-line-days   ;; same, for NGO static commodity lines
@@ -235,7 +255,7 @@ to setup-parameters
   set bailout-threshold-days 30    ;; [ASSUMPTION] locked days before a donor steps in
   set min-batch-days        7      ;; [ASSUMPTION] smallest economically sensible order (days of demand)
 
-  ;; ---- supply channels (gap 1: differentiated CMSD / EDCL / SMC proxies) ----
+  ;; ---- supply channels: differentiated CMSD / SMC / commercial-wholesale proxies ----
   set warehouse-replenish-interval 14                      ;; [SPEC]
   set warehouse-replenish-amount   4700                    ;; [CALIBRATED] ~336/day vs ~305/day network C2
                                                            ;; offtake, leaving ~10% headroom so shocks bite
@@ -300,12 +320,12 @@ to setup-parameters
   set forecast-window-days    14     ;; [ASSUMPTION] trailing window for demand forecasting
   set demand-history-days     30     ;; [PAPER 2.2.3.1] monthly consumption data drives ordering
   ;; WARM START for Average Monthly Consumption. A clinic's real throughput is
-  ;; its own walk-ins PLUS the outreach packs it issues PLUS patients diverted
-  ;; in from public stockouts — analytically ~76 / 101 / 46 units per day for
+  ;; its own walk-ins PLUS the outreach it supplies PLUS patients diverted in
+  ;; from public stockouts — analytically ~92 / 101 / 49 units per day for
   ;; C1 / C2 / C3. Seeding the history with walk-in demand alone (25/55/22)
   ;; would make the maximum-stock formula under-order for the first 30 days,
-  ;; i.e. a third of a 90-day run, for reasons unrelated to information latency.
-  ;; This estimate is fully replaced by observed data as the run proceeds.
+  ;; for reasons unrelated to information latency. Fully replaced by observed
+  ;; data as the run proceeds.
   set initial-consumption-estimate (list 92 101 49)
   set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
                                      ;; formula; monthly matches "localized monthly consumption
@@ -340,16 +360,13 @@ to setup-parameters
   ;; ---- environmental shocks (monsoon/flood proxy) ----
   set shock-active?           false
   set shock-days-remaining    0
-  ;; SHOCK AS AN EXPERIMENTAL FACTOR, not a rare random event.
-  ;; The paper studies 90-day periods. At a background rate of ~2 events/year a
-  ;; random-onset shock would appear in only ~39% of runs, so a "shocks on" arm
-  ;; would be mostly indistinguishable from "shocks off" and the environmental
-  ;; half of the research question would be untestable. Instead, demand-shocks?
-  ;; = On means this 90-day period CONTAINS one shock (read it as a monsoon
-  ;; season), with its ONSET DAY randomised so timing is still stochastic.
-  ;; This controls shock presence and randomises shock timing — the standard
-  ;; way to make a rare event analysable in a short observation window.
-  set scheduled-shock-day (1 + random (max (list 1 (simulation-length-days - shock-duration-max))))
+  ;; STOCHASTIC SHOCK ONSET at the specification's natural rate. Over a 3,650-day
+  ;; run this produces ~20 monsoon/flood events, so shock frequency itself becomes
+  ;; part of what the model reproduces rather than something imposed. (An earlier
+  ;; 90-day build had to schedule exactly one shock per run, because at this rate
+  ;; a 90-day window contains an event only ~39% of the time. A ten-year horizon
+  ;; removes that problem entirely.)
+  set shock-onset-probability (2 / 365)   ;; [SPEC] ~2 events per year
   set shock-duration-min      7           ;; [SPEC]
   set shock-duration-max      21          ;; [SPEC]
   set shock-demand-multiplier 1.8         ;; [SPEC] the AGGREGATE demand uplift
@@ -378,14 +395,16 @@ to setup-parameters
   set total-shock-days        0
 
   ;; ---- run control ----
-  set simulation-length-days 90           ;; [PAPER Section I] "track and record data over 90 day
-                                          ;; simulation periods". NOTE: at the paper's shock rate
-                                          ;; of ~2/year, only ~39% of 90-day runs contain a shock
-                                          ;; at all — see docs/09 for how to handle this.
+  set simulation-length-days 3650         ;; ten years of daily ticks (author's decision).
+                                          ;; A decade-long horizon lets the shock process run at
+                                          ;; its natural rate (~2 events/year, so ~20 per run)
+                                          ;; instead of needing one scheduled event, and lets
+                                          ;; slow effects such as RDF drift and repeat stockout
+                                          ;; cycles accumulate enough to measure.
 
   ;; ---- metrics ----
   set ngo-unmet-patients 0
-  set ngo-unmet-own 0
+  set ngo-unmet-walkin 0
   set ngo-unmet-diverted 0
   set completely-unserved-patients 0
   set coldchain-unserved 0
@@ -506,15 +525,15 @@ to setup-ngo-network
     set rdf-capital-locked? false
     set days-capital-locked 0
 
-    ;; opened at the formula's target level, so a 90-day run is not dominated
-    ;; by a startup transient
+    ;; opened at the maximum-stock level the MSH formula targets (AMC + safety),
+    ;; so the run does not begin with an artificial shortage or surplus
     set stock-on-hand         (list 3400 3750 1830)
     set recorded-stock-ledger (list 3400 3750 1830)
     set ledger-snapshot-tick  0
-    ;; [SPEC-DERIVED] The specification's (200 400 150) encoded roughly ONE WEEK of
-    ;; cover at the demand levels assumed then. Corrected demand (C1 ~76/day,
-    ;; C2 ~102/day, C3 ~47/day per static, once outreach packs and public
-    ;; diversion are counted) preserves that 7-day intent at the true scale.
+    ;; [SPEC-DERIVED] The specification's (200 400 150) encoded roughly ONE WEEK
+    ;; of cover at the demand levels assumed then. Corrected throughput (C1 ~92,
+    ;; C2 ~101, C3 ~49 units/day per static, once outreach and public diversion
+    ;; are counted) preserves that 7-day intent at the true scale: 7.1 days each.
     set safety-stock          (list 650 720 350)
     ;; physical storage ceiling, set ~30% above the maximum stock level the MSH
     ;; formula targets (AMC + safety), so it is a real but rarely-binding limit
@@ -523,8 +542,8 @@ to setup-ngo-network
 
     set mean-daily-demand     (list 25 55 22)        ;; [SPEC]
     set forecast-daily-demand mean-daily-demand
-    ;; seeded with a full month at the baseline rate so Average Monthly Consumption
-    ;; is well-defined from day 1 (a 90-day run has no time for a warm-up period)
+    ;; seeded with a full month of expected throughput so Average Monthly
+    ;; Consumption is well-defined from day 1 rather than ramping up
     set demand-history        (n-values demand-history-days [ -> initial-consumption-estimate ])
     set requested-today       (list 0 0 0)
     set dispensed-today       (list 0 0 0)
@@ -628,7 +647,7 @@ to update-demand-shocks
   ifelse shock-active?
     [ set shock-days-remaining (shock-days-remaining - 1)
       if shock-days-remaining <= 0 [ set shock-active? false ] ]
-    [ if demand-shocks? and (ticks = scheduled-shock-day) [
+    [ if demand-shocks? and ((random-float 1.0) < shock-onset-probability) [
         set shock-active? true
         ;; +1 makes shock-duration-max attainable (an earlier build had an off-by-one)
         set shock-days-remaining (shock-duration-min + random ((shock-duration-max - shock-duration-min) + 1))
@@ -782,8 +801,9 @@ to-report serve-from-stock [ c-idx amount ]
 end
 
 to note-facility-flow [ c-idx requested issued ]   ;; runs as an NGO facility
-  ;; only statics keep daily books; satellite flows reach the hub's books
-  ;; later, through the weekly restocking pull
+  ;; Only statics keep daily books. A satellite carries no books of its own —
+  ;; its consumption reaches the hub's ledger through the pack issued at
+  ;; departure and the remainder credited back on return.
   if breed = ngo-statics [
     set requested-today replace-item c-idx requested-today ((item c-idx requested-today) + requested)
     set dispensed-today replace-item c-idx dispensed-today ((item c-idx dispensed-today) + issued)
@@ -837,7 +857,7 @@ to process-ngo-static-demand
         let unfilled (serve-from-stock c-idx need)
         if unfilled > 0 [
           set ngo-unmet-patients (ngo-unmet-patients + unfilled)
-          set ngo-unmet-own (ngo-unmet-own + unfilled)
+          set ngo-unmet-walkin (ngo-unmet-walkin + unfilled)
           let still-unserved (send-to-private unfilled c-idx)
           if still-unserved > 0 [
             set completely-unserved-patients (completely-unserved-patients + still-unserved) ]
@@ -907,7 +927,7 @@ to run-satellite-rollouts
           ;; an outreach site has no pharmacy next door: unmet need at a rollout
           ;; is simply unmet — the patient is not rescued by the private market
           set ngo-unmet-patients (ngo-unmet-patients + unfilled)
-          set ngo-unmet-own (ngo-unmet-own + unfilled)
+          set ngo-unmet-walkin (ngo-unmet-walkin + unfilled)
           set completely-unserved-patients (completely-unserved-patients + unfilled)
         ]
       ]
@@ -940,7 +960,7 @@ end
 
 ;; Satellites are deliberately EXCLUDED: they hold nothing between rollouts, so
 ;; an empty satellite is normal operation, not a stockout. Their supply failures
-;; are captured where they belong — as unmet outreach patients in ngo-unmet-own.
+;; are captured where they belong — as unmet outreach patients in ngo-unmet-walkin.
 ;; Tracked lines: (12 public CCs x 4 classes) + (3 statics x 3 classes) = 57.
 to track-zero-stock
   ask (turtle-set public-ccs ngo-statics) [ update-zero-tracking ]
@@ -982,7 +1002,7 @@ end
 to update-ledger-visibility
   ask ngo-statics [
     if is-connected? and (not manual-fallback?) [
-      let total-lag ((dispensation-lag + sync-lag) * info-latency-severity)
+      let total-lag ((dispensation-lag + sync-lag) * environmental-latency-severity)
       ;; each queued entry is (due-tick , stock-snapshot , tick-the-snapshot-was-taken)
       set pending-ledger-updates lput (list (ticks + total-lag) stock-on-hand ticks) pending-ledger-updates
       let ready filter [ u -> (item 0 u) <= ticks ] pending-ledger-updates
@@ -1025,7 +1045,7 @@ to accumulate-paper-error   ;; runs as an ngo-static
   ;; missed paper entries scale with the volume actually dispensed that day;
   ;; the bias is positive: unrecorded dispensing makes the system believe MORE
   ;; stock remains than truly does
-  set paper-error-accum (map [ [ err disp ] -> err + (disp * reporting-error-rate * info-latency-severity) ]
+  set paper-error-accum (map [ [ err disp ] -> err + (disp * reporting-error-rate * environmental-latency-severity) ]
                              paper-error-accum dispensed-today)
 end
 
@@ -1069,8 +1089,9 @@ end
 ;; ============================================================================
 
 to apply-operating-costs
-  ;; staff/overhead share funded from the RDF margin; keeps the decapitalization
-  ;; failure mode reachable (see docs/06-CHANGELOG.md, change N1)
+  ;; Normally a no-op: daily-operating-cost is 0, because the paper states the
+  ;; RDF is ring-fenced and pays for drug procurement only. Retained so a
+  ;; breakdown-of-ring-fencing scenario can be tested by setting it above zero.
   ask ngo-statics [
     set rdf-capital max (list 0 (rdf-capital - daily-operating-cost))
   ]
@@ -1129,20 +1150,23 @@ end
 ;; ledger itself — that separation is the research design.
 to process-ngo-reorders
   ask ngo-statics [
-    ;; ---- C2: RDF pharmaceuticals via the EDCL/wholesale hub channel ----
+    ;; ---- C2: RDF pharmaceuticals from the NGO central warehouse ----
     if (not c2-order-outstanding?) and (not rdf-capital-locked?) [
       if (reorder-triggered? 1) [
         let desired (max-stock-order-quantity 1)
         let affordable floor (rdf-capital / class2-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
-          place-requisition 1 qty class2-unit-cost central-processing-lag "ngo-warehouse"
+          ;; the REAL approval delay, not just the clinic's internal estimate
+          place-requisition 1 qty class2-unit-cost
+                            (central-processing-lag * bureaucratic-latency-severity)
+                            "ngo-warehouse"
           set c2-order-outstanding? true
         ]
       ]
     ]
     ;; ---- C3: diagnostics/consumables bought on the LOCAL wholesale market ----
-    ;; (gap 3 fix: RDF-funded local purchase, short lead time, no central approval)
+    ;; RDF-funded local purchase: short lead time, no central approval
     ;; The capital lock applies here too: a decapitalized clinic freezes ALL
     ;; procurement, otherwise cheap C3 buying would drain the cash it needs to
     ;; climb back out of the lock.
@@ -1172,8 +1196,13 @@ end
 to-report projection-horizon [ c-idx ]   ;; runs as an ngo-static
   ;; the clinic knows its own institutional delays and projects demand across
   ;; them: procurement lead time + how stale it knows its data to be
-  let staleness ((dispensation-lag + sync-lag) * info-latency-severity)
-  let lead ifelse-value (c-idx = 1) [ central-processing-lag ] [ local-procurement-lag ]
+  ;; stage 1 + 2 staleness is environmental; the C2 lead time is the stage-3
+  ;; bureaucratic approval delay. C3 uses local-procurement-lag unscaled — that
+  ;; is a commercial delivery time, not part of the information-latency framework.
+  let staleness ((dispensation-lag + sync-lag) * environmental-latency-severity)
+  let lead ifelse-value (c-idx = 1)
+             [ (central-processing-lag * bureaucratic-latency-severity) ]
+             [ local-procurement-lag ]
   report (lead + staleness)
 end
 
@@ -1230,7 +1259,7 @@ to process-pending-requisitions
         [ set order-status "lost"
           set reqs-lost-count (reqs-lost-count + 1) ]
 
-      ;; gap 4 fix: every terminal outcome is logged for later analysis
+      ;; every terminal outcome is logged for later analysis
       set requisition-log lput (list tick-created ticks ([ who ] of clinic)
                                      (word "C" (c-idx + 1)) qty shipped order-status)
                                requisition-log
@@ -1253,7 +1282,8 @@ end
 ;; ============================================================================
 
 to run-replenishment-cycles
-  ;; EDCL/wholesale C2 channel restocks every 14 days
+  ;; the NGO central warehouse (stocked from domestic manufacturers) restocks
+  ;; every 14 days
   if (ticks > 0) and ((ticks mod warehouse-replenish-interval) = 0) [
     ask regional-hubs [ set ngo-warehouse-stock (ngo-warehouse-stock + warehouse-replenish-amount) ]
   ]
@@ -1306,12 +1336,13 @@ end
 to run-ngo-c1-push
   ;; SMC/donor C1 push to NGO statics, first-come-first-served on the same logic
   let hub one-of regional-hubs
-  foreach (shuffle (sort ngo-statics)) [ st ->
+  ;; NB: not named "st" — that is NetLogo's abbreviation for show-turtle
+  foreach (shuffle (sort ngo-statics)) [ clinic ->
     let avail [ smc-c1-stock ] of hub
     let grant min (list ngo-class1-push-amount avail)
     if grant > 0 [
-      ask st [ set stock-on-hand replace-item 0 stock-on-hand
-                   ((item 0 stock-on-hand) + grant) ]
+      ask clinic [ set stock-on-hand replace-item 0 stock-on-hand
+                       ((item 0 stock-on-hand) + grant) ]
       ask hub [ set smc-c1-stock (avail - grant) ]
       set ngo-goods-received-value (ngo-goods-received-value + (grant * class1-unit-value))
     ]
@@ -1381,11 +1412,11 @@ end
 ;; cycle, so it dilutes the latency signal in the headline metric.
 to-report ngo-unmet-own-share
   ifelse ngo-unmet-patients > 0
-    [ report ngo-unmet-own / ngo-unmet-patients ]
+    [ report ngo-unmet-walkin / ngo-unmet-patients ]
     [ report 0 ]
 end
 
-;; ---- calibration monitors (gap 2 benchmarks) ----
+;; ---- calibration monitors ----
 to-report public-availability-pct        ;; running average, target ~43%
   report 100 * avail-line-days / (max (list 1 total-line-days))
 end
@@ -1399,13 +1430,6 @@ to-report public-facility-stockout-pct   ;; share of facility-days with >=1 clas
   report 100 * facility-stockout-days / (max (list 1 facility-days))
 end
 
-;; ---- information-layer monitors ----
-
-;; THE clean test of information quality.  How many days out of date is the
-;; ledger?  This depends only on connectivity draws and info-latency-severity —
-;; never on stock levels, order timing or the predictive toggle.  Use this,
-;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
-;; untouched while improving reorder TIMING.  (docs/05 check 2)
 ;; ---- validation reporters against published benchmarks ----
 
 ;; Share of NGO static commodity-line-days sitting at zero stock.
@@ -1438,6 +1462,24 @@ to-report public-stockout-inequality
   let m mean burdens
   ifelse m > 0
     [ report 100 * (standard-deviation burdens) / m ]
+    [ report 0 ]
+end
+
+;; ---- information-layer monitors ----
+
+;; THE clean test of information quality.  How many days out of date is the
+;; ledger?  This depends only on connectivity draws and the ENVIRONMENTAL
+;; severity dial (the bureaucratic dial affects order timing, not data currency) —
+;; never on stock levels, order timing or the predictive toggle.  Use this,
+;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
+;; untouched while improving reorder TIMING.  (docs/05 check 2)
+;; Stage-3 approval delay actually in force, in days. Exposed as a monitor so
+;; the bureaucratic dial's effect is visible during a run. Written as a reporter
+;; because central-processing-lag is an ngo-statics-own variable and a monitor
+;; evaluates in observer context, where a bare reference to it is a runtime error.
+to-report effective-bureaucratic-lag
+  ifelse any? ngo-statics
+    [ report ((mean [ central-processing-lag ] of ngo-statics) * bureaucratic-latency-severity) ]
     [ report 0 ]
 end
 

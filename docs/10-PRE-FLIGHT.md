@@ -31,14 +31,14 @@ problems in this build.
 ### 0.2 Confirm the calibration still holds
 Since the last docs were written, satellite mechanics, safety stock, storage
 capacity, and shock multipliers all changed. My arithmetic says public
-availability is still 44–45%. **Verify it.** Defaults, run to day 90, read
+availability is still 44–45%. **Verify it.** Defaults, run to completion, read
 `public-availability-pct`. Expect 40–50%. Outside that, tell me.
 
 ### 0.3 Sanity-check three numbers against intuition
-After a default 90-day run, look at these and ask whether they are believable
+After a default full-length run, look at these and ask whether they are believable
 for a clinic network of this size:
-- `mean-rdf-capital` — should be *higher* than it started (1,798,000), growing
-  ~900 BDT/day/clinic
+- `mean-rdf-capital` — should be *far higher* than it started (1,798,000);
+  over ten years at ~900 BDT/day it roughly doubles
 - `waste-value-total` — should be tens of thousands of BDT, not millions or zero
 - `requisition-fill-rate` — should be high but not exactly 1.00 during shocks
 
@@ -81,7 +81,7 @@ stock cards and physical counts is exactly what you need. Even a range (say
 5–20%) lets you cite it and run the range as a sensitivity.
 
 **If you find nothing:** say so explicitly in Limitations, and note that
-`info-latency-severity` sweeps this parameter across a 4× range in the
+`environmental-latency-severity` sweeps this parameter across a 4× range in the
 experiment — which means your results already show whether conclusions depend
 on the value. That is a genuinely good answer.
 
@@ -185,7 +185,7 @@ with the answers.
 |---|---|
 | "Why does the capital lock never trigger?" | It can't, at the capitalization your paper implies (~940 days of purchasing per clinic). That's a finding, not a bug: at SHN's real capitalization, latency harms availability but not solvency. The mechanism is implemented and measurable via `mean-unverified-revenue`; a capital sweep would find where it starts to bind. |
 | "Why 3 clinics and 12 community clinics?" | Stylized subdistrict preserving structural ratios, not a national projection. Results are about mechanisms and differences between arms, not absolute magnitudes. |
-| "Why does the shock always happen?" | Deliberate. At ~2 events/year a 90-day window would contain a shock only 39% of the time, making the shock arm indistinguishable from the control. Shock *presence* is controlled; shock *timing* is randomised. Standard design for a rare event in a short observation window. |
+| "How are shocks generated?" | Stochastic onset at ~2 events/year, the specification's rate. Over a 3,650-day run that yields ~20 monsoon/flood events, so shock frequency is reproduced rather than imposed. Duration 7–21 days, uniform. |
 | "Why is the reorder formula fed bad data?" | That is the research design, not an error. The MSH maximum-stock formula (Box 46-1) is implemented exactly as your paper specifies; the latency corrupts one named input to it — Stock On Hand. |
 | "Why can't predictive modelling fix the data?" | By construction. Forecasting changes reorder *timing*; it cannot repair a stale ledger. `mean-ledger-age-days` is statistically identical across both arms — that's the evidence. |
 | "Are commodity classes aggregated?" | Yes, deliberately. The named commodities and their sourcing citations are documented in `03-MODEL-DOCUMENTATION.md` §11 as justification for class-level parameters. |
@@ -197,7 +197,7 @@ with the answers.
 You are ready to run the final experiment when:
 
 - [ ] All five verification checks pass, numbers recorded
-- [ ] Public availability lands in 40–50% on a default 90-day run
+- [ ] Public availability lands in 40–50% on a default full-length run
 - [ ] The three sanity numbers in 0.3 look believable
 - [ ] You've supplied the 43% citation, and it is not Kabir et al.
 - [ ] Tier 1 #1 and #2 are either sourced, or explicitly named as assumptions
@@ -397,8 +397,8 @@ Verified after re-scaling:
   specification's implied intent
 - Storage capacity clears the formula target in every class, so the MSH rule
   governs ordering and is never silently overridden
-- C1 supply over 90 days: 3,400 opening + two monthly pushes = 9,200 against
-  8,279 of demand — adequate, and just tight in a shock month (2,889 needed
-  against 2,900 pushed), which is the intended pressure
+- C1 supply is sustainable long-run: 2,900/month pushed against ~2,826/month
+  average demand once the ~7.7% of days under shock conditions are included —
+  a ~2.6% margin, tight in a shock month, which is the intended pressure
 - Shock multipliers recompute to **1.31 / 1.63 / 3.09** with a demand-weighted
   mean of **1.81**, still matching the specification's 1.8

@@ -17,7 +17,7 @@ class you asked me to hunt for: silent wrong behavior, no crash.
 if not is-connected? [
   set manual-fallback? true
   let real-c2 item 1 stock-on-hand
-  let ledger-error round (real-c2 * reporting-error-rate * info-latency-severity)
+  let ledger-error round (real-c2 * reporting-error-rate * environmental-latency-severity)
   set recorded-stock-ledger replace-item 1 recorded-stock-ledger (real-c2 + ledger-error) ]
 ```
 Every offline day this **overwrote the ledger with the current true stock**
@@ -303,7 +303,7 @@ the predictive arm could not compensate for latency, which is precisely the
 mitigation your question asks about.
 
 ### N5. Unmet-demand decomposition
-`ngo-unmet-patients` is now split into `ngo-unmet-own` and
+`ngo-unmet-patients` is now split into `ngo-unmet-walkin` and
 `ngo-unmet-diverted`. The diverted component is driven by the (latency-free)
 public push cycle and is large, so it dilutes the latency signal in the
 headline number. Reporting both lets you show the effect cleanly instead of
@@ -330,7 +330,7 @@ properties. Recording them because the reasoning belongs in the methodology
 write-up.
 
 ### V1. Check 1 specified an incomplete control condition — *doc fix*
-*Reported:* with `info-latency-severity` = 0 and `grid-failure-rate` = 0,
+*Reported:* with `environmental-latency-severity` = 0 and `grid-failure-rate` = 0,
 "% time on paper" was above zero and the two pens in Plot 1 were very slightly
 apart, where the check said both should be exactly zero.
 
@@ -364,7 +364,7 @@ not evidence about data accuracy.
 
 *Fix:* added `ledger-snapshot-tick` per clinic and the reporter
 `mean-ledger-age-days` — how many days out of date the ledger is. This depends
-only on connectivity draws and `info-latency-severity`, and is mathematically
+only on connectivity draws and `environmental-latency-severity`, and is mathematically
 incapable of responding to order timing, so it is the correct test of "does
 prediction repair the data?". Together with `pct-time-on-paper` it gives two
 independent invariants that must hold across the predictive arms.
@@ -412,3 +412,56 @@ deliberately does not do.
 *Guidance for the write-up:* report calibration figures as point values (they
 are stable by construction) and the four outcome metrics as means with
 standard deviations across BehaviorSpace replications.
+
+
+---
+
+## Part 6 — Latency split into environmental and bureaucratic dials
+
+### Why
+A single `info-latency-severity` slider scaled all three stages of the paper's
+latency framework at once. That conflated two causes §2.2.4 explicitly
+separates: stages 1–2 (dispensation lag, device sync lag) are environmental and
+technical — grid failure, bandwidth, digitization gaps — while stage 3 (central
+processing lag) is *"primarily caused by human rather than environmental lag"*.
+With one dial, the relative contribution of connectivity failure versus
+administrative slowness could not be measured, and "which policy lever matters
+more" was unanswerable.
+
+### What changed in the code
+
+| Tag | Change |
+|---|---|
+| [D5-1] | `info-latency-severity` → `environmental-latency-severity`. Pure rename across 6 sites; no logic altered in `update-ledger-visibility`, `accumulate-paper-error`, or the `staleness` term. |
+| [D5-2] | New Interface slider `bureaucratic-latency-severity` (0–3, step 0.25, default 1). Widget count 4 → 5. |
+| [D5-3a] | `projection-horizon`: the C2 `lead` becomes `(central-processing-lag * bureaucratic-latency-severity)`. C3 keeps `local-procurement-lag` unscaled — a commercial delivery time, not part of the information framework. |
+| [D5-3b] | `process-ngo-reorders`: the lag passed to `place-requisition` becomes the same product, so the dial moves *real* order arrival, not just the clinic's internal estimate. |
+| [D5-4] | New reporter `effective-bureaucratic-lag`. Implemented as a reporter rather than the inline expression originally requested, because `central-processing-lag` is `ngo-statics-own` and a monitor evaluates in observer context, where a direct reference is a runtime error. |
+| [D5-5] | Comments describing one dial covering all three stages rewritten to describe the two dials separately. |
+
+**Behaviour-neutral at default.** At `bureaucratic-latency-severity = 1` the
+product is `2 × 1 = 2`, exactly the previous constant. Nothing changes until the
+dial moves. At `0`, requisitions resolve on the tick they are placed — the
+correct degenerate case for instant approval.
+
+### The experiment was redesigned to match
+
+Introducing a parameter and never varying it would have been worse than not
+introducing it — a reviewer would ask why. The BehaviorSpace design now varies
+`environmental-latency-severity` × `bureaucratic-latency-severity` ×
+`predictive-modeling?` × `demand-shocks?`, at 10 replications:
+**64 conditions × 10 = 640 runs, the same count and runtime as before.**
+
+`grid-failure-rate` moves out of the factorial and is held at its default 0.1,
+with a separate 40-run one-factor sweep suggested instead. Replications drop
+20 → 10, which is defensible at a ten-year horizon since each run already
+averages over ~20 shock events.
+
+This makes the design answer a third question alongside the original two:
+**which lever matters more, connectivity or bureaucracy** — and whether fixing
+one helps when the other is still bad, which would mean piecemeal reform fails.
+
+### Also corrected in this pass
+Stale figures in the documentation: tracked commodity lines stated as 84 in two
+places when satellites were excluded and the true count is 57, and a
+BehaviorSpace warning citing 1,095 rows per run at a 3,650-day horizon.

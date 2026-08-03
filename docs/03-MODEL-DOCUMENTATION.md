@@ -155,7 +155,7 @@ behavior. All of it lives in `update-ledger-visibility`,
 
 **Connected, digital mode.** Each day the clinic's true closing stock enters a
 sync queue and becomes visible to the ledger only
-`(dispensation-lag + sync-lag) × info-latency-severity` days later (stage 1:
+`(dispensation-lag + sync-lag) × environmental-latency-severity` days later (stage 1:
 consumption-to-entry delay; stage 2: batching/upload delay). So in the best
 connected case the ledger is a faithful photograph of the shelf **as it looked
 several days ago** — permanently stale, never fabricated. At severity 0 the
@@ -295,7 +295,8 @@ entire diversion cascade dead-ended for the rest of a 10-year run
    procurement value. Unit counts are kept separately
    (`total-expired-units`, `total-expired-units-coldchain`).
 3. **`lines-ever-zero`** — a "line" is one commodity class at one facility
-   (12 CCs × 4) + (3 statics × 3) + (9 satellites × 3) = 84 lines. This counts
+   (12 CCs × 4) + (3 statics × 3) = 57 lines. Satellites are excluded — they
+   hold nothing between rollouts, so an empty team is normal operation. This counts
    how many ever hit zero during the run.
 4. **`zero-episode-total`** — total number of distinct zero-stock episodes
    (a line entering zero counts once until it recovers above zero), with
@@ -315,9 +316,9 @@ treatment.** Public community clinics run on a rigid push cycle with no
 information mechanics at all, and satellites restock to fixed weekly targets.
 Both contribute large, essentially constant amounts to `ngo-unmet-patients`,
 `lines-ever-zero` and `zero-episode-total`. Only the three NGO statics carry
-the latency layer, so a change in `info-latency-severity` or
+the latency layer, so a change in `environmental-latency-severity` or
 `predictive-modeling?` can only move the static component. Always report the
-decomposition alongside the total — `ngo-unmet-own` vs `ngo-unmet-diverted`,
+decomposition alongside the total — `ngo-unmet-walkin` vs `ngo-unmet-diverted`,
 and `static-zero-episodes` vs `satellite-zero-episodes` vs
 `public-zero-episodes`. A reviewer who sees only the totals will conclude the
 treatment effect is small; the decomposition shows where it actually lives.

@@ -45,7 +45,7 @@ Each entry: value → why it exists → direction of risk if wrong.
 5. **Reporting-error rate = 8% of dispensed volume per paper-fallback day,
    biased positive.** The positive direction is defensible (missed paper
    entries = unrecorded consumption = overstated stock — the direction that
-   delays reorders); the magnitude is an assumption. `info-latency-severity`
+   delays reorders); the magnitude is an assumption. `environmental-latency-severity`
    scales it, so the experiment sweeps this uncertainty rather than hiding it.
 6. **Local procurement lead time (C3) = 2 days; minimum viable order batch =
    7 days of demand; forecast window = 14 days; forecast noise = ±5%.**

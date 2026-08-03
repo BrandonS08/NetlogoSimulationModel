@@ -37,13 +37,16 @@ four widgets in `02` Phase A first, then follow `00-START-HERE.md`.
 
 ## Files
 
-- `model/CodeTab.txt` — the model source, and the single source of truth.
-- `BangladeshHealthClinicLatency.nlogo` — convenience copy with the interface
-  and BehaviorSpace experiment already built in, for anyone who can open
-  `.nlogo` files directly. Not needed for the paste-into-Code-tab workflow.
-- `scripts/assemble_nlogo.py` — regenerates the `.nlogo` and `docs/01` from
-  `model/CodeTab.txt`, so the three can never drift apart. Run
-  `python3 scripts/assemble_nlogo.py` after any code edit.
+- **`model/CodeTab.txt` — the model. This is the only file you ever copy from.**
+  It is pure NetLogo code from the first line to the last, with nothing else in
+  it. Use GitHub's "Copy raw file" button.
+- `scripts/assemble_nlogo.py` — keeps `docs/01` in step with the code.
+
+There used to be a `BangladeshHealthClinicLatency.nlogo` convenience copy here.
+It has been **deleted**. A `.nlogo` file stores the interface, info tab and
+shapes after a `@#$#@#$#@` separator, so copying from it pastes a large block
+of non-code into the Code tab — which happened twice. The repository now
+contains exactly one file anyone should copy from.
 
 ## Verification status
 

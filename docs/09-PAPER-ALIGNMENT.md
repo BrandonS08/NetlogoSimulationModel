@@ -99,11 +99,17 @@ central warehouses. Renamed `ngo-warehouse-stock` throughout. A reviewer who
 knows Bangladeshi pharmaceutical procurement would have caught this
 immediately.
 
-### P6. Run length is now 90 days
-§I: "track and record data over 90 day simulation periods." Was 3,650 (and
-1,095 in the experiment). Now 90 everywhere. Demand history is seeded with a
-full month at baseline so Average Monthly Consumption is well defined from
-day 1 — a 90-day run has no room for a warm-up period.
+### P6. Run length — 90 days, then reverted to 3,650 by author decision
+§I states "90 day simulation periods", so this was briefly set to 90. The
+author subsequently chose a **ten-year (3,650-day)** horizon instead, and the
+model now runs that. Two consequences, both good: shocks return to stochastic
+onset at the specification's natural rate (~2/year, so ~20 events per run)
+rather than needing one scheduled event per run, and slow effects such as RDF
+drift and repeat stockout cycles get long enough to measure. Demand history is
+still warm-started so Average Monthly Consumption is defined from day 1.
+
+*If you later report results against the paper's stated 90-day framing, note
+the discrepancy explicitly, or amend §I to match the horizon actually used.*
 
 ### P7. Paper-fallback stickiness raised from 3 days to 7
 §2.2.4: staff digitise records at "end-of-week or even end-of-month batch
@@ -205,7 +211,7 @@ patients. Rebuilt accordingly:
 - **Between rollouts satellites hold nothing**, so they are now excluded from
   stockout tracking — an empty team is normal, not a stockout. Tracked lines
   drop from 84 to **57** (12 public CCs × 4, plus 3 statics × 3). Unmet
-  outreach demand is still counted, in `ngo-unmet-own`, where it belongs.
+  outreach demand is still counted, in `ngo-unmet-walkin`, where it belongs.
 - **Diverted public patients now route to statics only.** Sending a walk-in to
   a team that is out in the field on a given day made no sense.
 
@@ -328,7 +334,7 @@ All flows re-derived and re-balanced:
 | C2 warehouse | 5,600/14d | **4,700/14d** | C2 demand *fell* when satellites stopped carrying retail stock; 336/day supply vs 303/day demand = 11% headroom, so shocks ration |
 | Safety stock | 200/400/150 | **550/720/330** | preserves the spec's implied **7-day cover** at corrected demand (now 7.2 / 7.1 / 7.1 days) |
 | Storage capacity | 1,200/2,500/800 | **3,200/4,500/2,000** | ~30% above the MSH formula's maximum stock level, so the cap is a real but rarely-binding limit instead of silently overriding the paper's order rule |
-| Opening stock | 800/1,500/500 | **2,400/3,000/1,400** | near formula target, so a 90-day run isn't dominated by a startup transient |
+| Opening stock | 800/1,500/500 | **2,400/3,000/1,400** (later 3,400/3,750/1,830) | opens at the formula target, so no startup transient |
 
 Verified after re-scaling: public availability **44–45%** (target ~43%); the
 MSH formula governs ordering in all three classes rather than hitting the
@@ -393,7 +399,7 @@ fraction, so shortage was invisible as a *distributional* phenomenon. Under
 FCFS the same total shortfall lands unevenly. It supports a claim your paper
 gestures at but could not previously demonstrate: **information latency does
 not merely cause shortages, it determines who bears them.** Expect this metric
-to rise with `info-latency-severity` and during shocks.
+to rise with `environmental-latency-severity` and during shocks.
 
 ### D3 — Cross-type independent placement (implemented, as you specified)
 
