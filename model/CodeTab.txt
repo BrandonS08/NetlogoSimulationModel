@@ -28,6 +28,7 @@ breed [ requisitions    requisition ]    ;; short-lived agents: reorder requests
 
 public-ccs-own [
   stock-on-hand      ;; list of 4 numbers: physical units of P1..P4
+  my-stockout-days   ;; days this clinic had >=1 class at zero (FCFS inequality)
   zero-flags         ;; list of 4 booleans: is this line currently at zero?
   zero-episodes      ;; list of 4 counts: completed entries into a zero state
   ever-zero          ;; list of 4 booleans: has this line EVER hit zero?
@@ -35,7 +36,12 @@ public-ccs-own [
 
 ngo-statics-own [
   ;; --- Revolving Drug Fund finances ---
-  rdf-capital             ;; working capital (BDT)
+  rdf-capital             ;; SPENDABLE working capital (BDT) — verified sales only
+  unverified-revenue      ;; BDT taken at the counter but not yet digitally validated.
+                          ;; Paper 2.2.4: "capital legally tied up in medical sales would
+                          ;; be useless with the systems required to validate consumption
+                          ;; being offline."  This is the financial channel of information
+                          ;; latency: an outage freezes purchasing power, not just data.
   rdf-capital-locked?     ;; true while capital cannot buy a minimum viable batch
   days-capital-locked     ;; consecutive days in the locked state
 
@@ -76,9 +82,9 @@ ngo-statics-own [
 ]
 
 ngo-satellites-own [
-  parent-hub          ;; the ngo-static this satellite depends on
-  stock-on-hand       ;; list of 3: C1..C3 (all finances flow through parent-hub)
-  zero-flags zero-episodes ever-zero
+  parent-hub          ;; the ngo-static this team draws stock from and reports to
+  stock-on-hand       ;; list of 3: what the team is carrying TODAY (empty between
+                      ;; rollouts). All finances flow through parent-hub.
 ]
 
 private-shops-own [
@@ -86,9 +92,12 @@ private-shops-own [
 ]
 
 regional-hubs-own [
-  ;; Gap 1 fix: one physical node, three DIFFERENTIATED supply channels.
-  smc-c1-stock          ;; SMC/DGFP donor push channel: C1 ESP/contraceptives
-  edcl-rdf-stock        ;; EDCL/wholesale channel: C2 RDF pharmaceuticals (requisition-driven)
+  ;; One physical node, three DIFFERENTIATED supply channels (paper 2.2.1, 2.2.3.1).
+  smc-c1-stock          ;; SMC Star Network / DGFP push channel: C1 ESP commodities
+  ngo-warehouse-stock   ;; SHN central warehouse: C2 retail pharmaceuticals bought from
+                        ;; DOMESTIC COMMERCIAL MANUFACTURERS (Square/Incepta/Beximco), then
+                        ;; released against clinic requisitions.  NOT the EDCL — EDCL and
+                        ;; CMSD serve the public sector only (paper 2.2.1 vs 2.2.3.1).
   public-channel-stock  ;; list of 4: CMSD/EDCL public push channel for P1..P4
   ;; (C3 is bought on the LOCAL wholesale market and never passes through this node.)
 ]
@@ -100,7 +109,7 @@ requisitions-own [
   unit-cost
   tick-created
   processing-lag-days  ;; central-processing-lag (C2) or local-procurement-lag (C3)
-  source-channel       ;; "edcl-hub" or "local-market"
+  source-channel       ;; "ngo-warehouse" or "local-market"
   order-status         ;; "pending" -> "fulfilled" / "partial" / "lost"
 ]
 
@@ -121,14 +130,17 @@ globals [
   num-public-ccs num-ngo-statics satellites-per-static num-private-shops
 
   ;; ---- supply channels & replenishment ----
-  edcl-replenish-interval edcl-replenish-amount
+  warehouse-replenish-interval warehouse-replenish-amount
   public-push-interval public-channel-replenish smc-c1-replenish
   ngo-class1-push-amount
-  satellite-stock-targets private-shop-base-stock
+  satellite-pack-size satellite-patients-min satellite-patients-max
+  satellite-consumable-share private-shop-base-stock
+  rollout-days shock-extra-rollout-day
 
   ;; ---- information / procurement timing ----
   fallback-recovery-lag local-procurement-lag reporting-error-rate
-  forecast-window-days
+  forecast-window-days demand-history-days
+  review-period-months            ;; MSH Box 46-1 maximum-stock formula input
 
   ;; ---- loss rates ----
   c1-monthly-spoilage-rate c2-monthly-spoilage-rate c2-monthly-shrinkage-rate
@@ -136,15 +148,17 @@ globals [
 
   ;; ---- public facility demand ----
   mean-daily-patients patient-sd p-class-fractions p-to-c-class-map
+  initial-consumption-estimate
   higher-care-referral-rate cc-push-target
 
   ;; ---- geography ----
-  cluster-centers
+  public-cluster-centers ngo-cluster-centers
 
   ;; ---- environmental shocks ----
-  shock-active? shock-days-remaining shock-onset-probability
+  shock-active? shock-days-remaining scheduled-shock-day
   shock-duration-min shock-duration-max
-  shock-demand-multiplier shock-grid-risk-add total-shock-days
+  c-shock-multipliers p-shock-multipliers shock-demand-multiplier
+  shock-grid-risk-add total-shock-days c1-heat-sensitive-share
 
   ;; ---- run control ----
   simulation-length-days
@@ -163,6 +177,8 @@ globals [
   requisition-log               ;; list of per-requisition outcome rows (gap 4)
   donor-bailouts-total
   avail-line-days total-line-days          ;; running public availability accounting
+  static-stockout-line-days static-line-days   ;; same, for NGO static commodity lines
+  ngo-waste-value ngo-goods-received-value     ;; waste vs goods-in, for the <2% standard
   facility-stockout-days facility-days     ;; running facility-level stockout accounting
   paper-days-cum                           ;; clinic-days spent on paper fallback
 ]
@@ -198,31 +214,102 @@ to setup-parameters
   ;; ---- economics, BDT ----
   set class2-unit-cost      15     ;; [SPEC]
   set class2-retail-price   22     ;; [SPEC] RDF margin ~47%
-  set class3-unit-cost      10     ;; [ASSUMPTION] local wholesale reagent/consumable unit cost
-  set class3-retail-price   15     ;; [ASSUMPTION] diagnostics user-fee (RDF cost recovery)
-  set class1-unit-value     5      ;; [ASSUMPTION] accounting value of donated C1 units (waste pricing)
-  set p3-unit-value         100    ;; [ASSUMPTION] accounting value of one vaccine/cold-chain dose
+  ;; C3 and C1 unit values below come from the commodity price catalogue in the
+  ;; author's inventory proof-of-concept (median per-unit BDT within each class),
+  ;; which is a price reference only — none of its behavioural parameters are used.
+  set class3-unit-cost      8.5    ;; [CATALOGUE] median Consumables & Diagnostics unit price
+  set class3-retail-price   12.5   ;; [ASSUMPTION] cost x ~1.47, matching the C2 RDF margin
+  set class1-unit-value     11     ;; [CATALOGUE] median MNACH/ESP unit price (waste pricing only)
+  set p3-unit-value         100    ;; [CATALOGUE] MR vaccine unit price — corroborates the
+                                   ;; value previously assumed for one cold-chain dose
   set c-unit-values         (list class1-unit-value class2-unit-cost class3-unit-cost)
-  set daily-operating-cost  800    ;; [CALIBRATED] keeps RDF margin thin but positive at baseline
+  set daily-operating-cost  0      ;; [PAPER 2.2.3.1] The RDF is strictly ring-fenced: "all
+                                   ;; earned capital must be rolled over and strictly contained
+                                   ;; within the RDF", and RDF capital "cannot be used for any
+                                   ;; means other than drug procurement". Operating costs fall on
+                                   ;; the separate general fund (which runs at a loss). An earlier
+                                   ;; build charged operations to the RDF; the paper contradicts
+                                   ;; that, so it is switched off. Set >0 only to test a scenario
+                                   ;; where ring-fencing breaks down.
   set donor-recap-amount    50000  ;; [ASSUMPTION] donor recapitalization grant
   set bailout-threshold-days 30    ;; [ASSUMPTION] locked days before a donor steps in
   set min-batch-days        7      ;; [ASSUMPTION] smallest economically sensible order (days of demand)
 
   ;; ---- supply channels (gap 1: differentiated CMSD / EDCL / SMC proxies) ----
-  set edcl-replenish-interval 14                      ;; [SPEC]
-  set edcl-replenish-amount   5600                    ;; [CALIBRATED] ~400 units/day vs ~390/day modeled offtake
+  set warehouse-replenish-interval 14                      ;; [SPEC]
+  set warehouse-replenish-amount   4700                    ;; [CALIBRATED] ~336/day vs ~305/day network C2
+                                                           ;; offtake, leaving ~10% headroom so shocks bite
   set public-push-interval    30                      ;; [SPEC]
   set public-channel-replenish (list 950 3400 650 1300)  ;; [CALIBRATED] ~= 12 CCs x push target + 5%
-  set smc-c1-replenish        5000                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
-  set ngo-class1-push-amount  1600                    ;; [CALIBRATED] was 800; see docs/06-CHANGELOG.md
-  set satellite-stock-targets (list 40 80 30)         ;; [SPEC + ASSUMPTION for C3]
+  set smc-c1-replenish        9000                    ;; [CALIBRATED] covers 3 x ngo-class1-push-amount
+  set ngo-class1-push-amount  2900                    ;; [CALIBRATED] C1 offtake per static is
+                                                      ;; ~92/day (own 25 + outreach ~55 + diverted ~12)
+  ;; ---- satellite outreach rollouts ----
+  ;; Satellites do NOT compete with the static for patients; they DRAW STOCK from
+  ;; it and run a mini-clinic at an outlying site for a day. What matters for this
+  ;; model is that inventory leaves the static's shelf and is consumed off-site.
+  ;; Cadence [CATALOGUE]: ~25 coverage sites per static, each visited 1-2x/month,
+  ;; teams departing ~10x/week. Here 3 satellite agents x 3 rollout days = 9/week.
+  set rollout-days (list 2 3 5)     ;; Tue / Wed / Fri within each 7-day cycle
+  set shock-extra-rollout-day 0     ;; monsoon adds a 4th rollout day (~x1.33 frequency;
+                                    ;; the catalogue's monsoon factor is ~x1.45)
+  ;; Outreach commodity mix is overwhelmingly ESP/MNACH — vitamins, maternal items,
+  ;; contraceptives, ORS — plus the consumables needed to administer them. Teams
+  ;; are not retail pharmacies, so they carry NO C2.
+  ;; [AUTHOR] A satellite session serves 35-50 patients and lasts a single day.
+  ;; Converted to commodity units using the model's existing convention that one
+  ;; patient draws one unit of the commodity they came for (the same convention
+  ;; the public-clinic demand routine uses).
+  set satellite-patients-min 35
+  set satellite-patients-max 50
+  set satellite-consumable-share 0.20   ;; [ASSUMPTION] share of outreach patients
+                                        ;; needing an administration consumable —
+                                        ;; syringe for an injectable contraceptive or
+                                        ;; vaccine, or a diagnostic test strip
+  ;; Teams pack for the top of the patient range plus ~10% margin, because they
+  ;; cannot restock mid-session: 50 x 1.1 = 55 C1, and 55 x 0.20 = 11 C3.
+  set satellite-pack-size   (list 55 0 11)
   set private-shop-base-stock (list 100 600 200)      ;; [SPEC]
 
   ;; ---- information & procurement timing (days) ----
-  set fallback-recovery-lag   3      ;; [SPEC] behavioral stickiness after reconnection
+  set fallback-recovery-lag   7      ;; [PAPER 2.2.4] staff "grow comfortable resorting to manual
+                                     ;; paper-based inventory management — even in times of stable
+                                     ;; connection", digitising at "end-of-week or even end-of-month
+                                     ;; batch logging". End-of-week = 7 days (was 3).
   set local-procurement-lag   2      ;; [ASSUMPTION] local wholesaler delivery time for C3
-  set reporting-error-rate    0.08   ;; [ASSUMPTION] share of paper-recorded flow mis-captured
+  set reporting-error-rate    0.217  ;; [LIT: Bekele et al. 2025, PLOS Glob Public Health,
+                                     ;; Jimma Zone, Ethiopia] Mean accuracy of MANUAL bin-card
+                                     ;; records against physical count was 78.3%, i.e. a 21.7%
+                                     ;; discrepancy rate (per-item range 60%-95% accuracy).
+                                     ;; Interpretation used here: 21.7% of stock movement handled
+                                     ;; on paper fails to reach the record correctly. That is an
+                                     ;; interpretive step — the source reports the share of
+                                     ;; RECORDS that disagree, not the share of UNITS mis-posted —
+                                     ;; and it is stated as such in docs/04.
+                                     ;; Two reasons this is conservative: (a) Bekele's facilities
+                                     ;; use bin cards as their ROUTINE system, whereas here paper
+                                     ;; is an emergency fallback, and Larsen et al. 2019 found
+                                     ;; emergency downtime paper records "significantly
+                                     ;; fragmented", with "not all documentation completed";
+                                     ;; (b) the POSITIVE bias is directly evidenced — Bekele found
+                                     ;; "losses and adjustments" filled in only 35% of records,
+                                     ;; the least-recorded data component of all, so unrecorded
+                                     ;; depletion systematically overstates remaining stock.
+                                     ;; Digital-mode error is modelled as zero, justified by the
+                                     ;; post-OpenMRS rate of 200 per 250,000 entries (0.08%).
   set forecast-window-days    14     ;; [ASSUMPTION] trailing window for demand forecasting
+  set demand-history-days     30     ;; [PAPER 2.2.3.1] monthly consumption data drives ordering
+  ;; WARM START for Average Monthly Consumption. A clinic's real throughput is
+  ;; its own walk-ins PLUS the outreach packs it issues PLUS patients diverted
+  ;; in from public stockouts — analytically ~76 / 101 / 46 units per day for
+  ;; C1 / C2 / C3. Seeding the history with walk-in demand alone (25/55/22)
+  ;; would make the maximum-stock formula under-order for the first 30 days,
+  ;; i.e. a third of a 90-day run, for reasons unrelated to information latency.
+  ;; This estimate is fully replaced by observed data as the run proceeds.
+  set initial-consumption-estimate (list 92 101 49)
+  set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
+                                     ;; formula; monthly matches "localized monthly consumption
+                                     ;; data" and the pharmacist's "weekly/monthly" reporting duty
 
   ;; ---- loss rates (monthly fractions) ----
   set c1-monthly-spoilage-rate  0.05   ;; [SPEC]
@@ -232,6 +319,12 @@ to setup-parameters
   set coldchain-monthly-loss-rate 0.01 ;; [ASSUMPTION] storage-loss component only (see Limitations:
                                        ;;  published TOTAL wastage incl. open-vial is 25-46%)
   set coldchain-outage-accel    4      ;; [SPEC] refrigeration loss multiplier under grid stress
+  set c1-heat-sensitive-share   0.5    ;; [CATALOGUE] 5 of 10 MNACH commodities carry a
+                                       ;; cold-chain or temperature-sensitivity flag (2 cold
+                                       ;; chain incl. MR vaccine, 2 high-temp, 1 temp). That
+                                       ;; share of NGO C1 spoils faster when the grid fails,
+                                       ;; so an outage damages NGO STOCK as well as delaying
+                                       ;; NGO INFORMATION.
 
   ;; ---- public facility demand ----
   set mean-daily-patients 38           ;; [LIT: WHO/CBHC evaluation 2019 — CC utilization ~40/day by 2016]
@@ -247,15 +340,48 @@ to setup-parameters
   ;; ---- environmental shocks (monsoon/flood proxy) ----
   set shock-active?           false
   set shock-days-remaining    0
-  set shock-onset-probability (2 / 365)   ;; [SPEC] ~2 events/year
+  ;; SHOCK AS AN EXPERIMENTAL FACTOR, not a rare random event.
+  ;; The paper studies 90-day periods. At a background rate of ~2 events/year a
+  ;; random-onset shock would appear in only ~39% of runs, so a "shocks on" arm
+  ;; would be mostly indistinguishable from "shocks off" and the environmental
+  ;; half of the research question would be untestable. Instead, demand-shocks?
+  ;; = On means this 90-day period CONTAINS one shock (read it as a monsoon
+  ;; season), with its ONSET DAY randomised so timing is still stochastic.
+  ;; This controls shock presence and randomises shock timing — the standard
+  ;; way to make a rare event analysable in a short observation window.
+  set scheduled-shock-day (1 + random (max (list 1 (simulation-length-days - shock-duration-max))))
   set shock-duration-min      7           ;; [SPEC]
   set shock-duration-max      21          ;; [SPEC]
-  set shock-demand-multiplier 1.8         ;; [SPEC]
+  set shock-demand-multiplier 1.8         ;; [SPEC] the AGGREGATE demand uplift
+  ;; CLASS-DIFFERENTIATED SHOCK RESPONSE.
+  ;; The specification's x1.8 is preserved exactly, as the demand-WEIGHTED MEAN
+  ;; across commodity classes. The catalogue's flood-spike data supplies only the
+  ;; SHAPE — how that total is distributed. Catalogue flood sensitivity by class
+  ;; (share of items affected x mean multiplier) gives relative excess demand of
+  ;; about 1.5 : 3.0 : 10.0 for MNACH : pharmaceuticals : consumables.
+  ;; Derived here rather than hard-coded, so changing shock-demand-multiplier
+  ;; rescales every class consistently and the weighted mean always holds.
+  let flood-shape   (list 1.5 3.0 10.0)    ;; excess over baseline, by class
+  let demand-share  (list 0.38 0.42 0.20)  ;; C1/C2/C3 share of NGO throughput
+  let weighted-excess sum (map [ [ x w ] -> x * w ] flood-shape demand-share)
+  let k ((shock-demand-multiplier - 1) / weighted-excess)
+  set c-shock-multipliers (map [ x -> 1 + (x * k) ] flood-shape)
+  ;; public classes inherit: P1 maternal/FP and P3 vaccines follow the MNACH
+  ;; profile, P2 essential medicines the pharmaceutical one, P4 the consumables one
+  set p-shock-multipliers (list (item 0 c-shock-multipliers) (item 1 c-shock-multipliers)
+                                (item 0 c-shock-multipliers) (item 2 c-shock-multipliers))
+  ;; Consumables and diagnostics take the heaviest hit — they are the flood-
+  ;; response commodities (IV fluids, ORS, test kits) — while chronic-disease
+  ;; medicines barely move. This matters because C3 also has the thinnest buffer,
+  ;; so the shock lands where the information system is least forgiving.
   set shock-grid-risk-add     0.25        ;; [SPEC]
   set total-shock-days        0
 
   ;; ---- run control ----
-  set simulation-length-days 3650         ;; [SPEC] ten years of daily ticks
+  set simulation-length-days 90           ;; [PAPER Section I] "track and record data over 90 day
+                                          ;; simulation periods". NOTE: at the paper's shock rate
+                                          ;; of ~2/year, only ~39% of 90-day runs contain a shock
+                                          ;; at all — see docs/09 for how to handle this.
 
   ;; ---- metrics ----
   set ngo-unmet-patients 0
@@ -275,6 +401,10 @@ to setup-parameters
   set donor-bailouts-total 0
   set avail-line-days 0
   set total-line-days 0
+  set static-stockout-line-days 0
+  set static-line-days 0
+  set ngo-waste-value 0
+  set ngo-goods-received-value 0
   set facility-stockout-days 0
   set facility-days 0
   set paper-days-cum 0
@@ -290,31 +420,56 @@ to setup-geography
     set color blue
     set size 2.5
     setxy 0 0
-    set smc-c1-stock 5000
-    set edcl-rdf-stock 10000
+    set smc-c1-stock 7500
+    set ngo-warehouse-stock 10000
     set public-channel-stock (list 950 3400 650 1300)
   ]
 
-  ;; two stylized population clusters (uneven facility distribution, Section 2.x)
-  set cluster-centers (list (patch 8 8) (patch -8 -7))
+  ;; D3 — CROSS-TYPE INDEPENDENT PLACEMENT.
+  ;; The author's chi-square test (X2 = 2.250, p = 0.134, V = 0.187) finds NGO and
+  ;; public per-capita concentrations to be statistically INDEPENDENT OF EACH
+  ;; OTHER. It makes no claim about how NGO facilities sit relative to other NGO
+  ;; facilities, or public relative to public. So each sector gets its OWN pair of
+  ;; population clusters, drawn independently: within-sector clustering is
+  ;; retained as a stylization, while cross-sector correlation is zero by
+  ;; construction. Centres are redrawn each run, so results are not an artefact
+  ;; of one fixed map.
+  set public-cluster-centers (pick-cluster-centers 2)
+  set ngo-cluster-centers    (pick-cluster-centers 2)
 end
 
-to move-to-stylized-location [ min-dist-from-hub ]
+;; Choose N population-cluster centres, kept clear of the hub and reasonably
+;; separated from one another, with fallbacks so this can never fail.
+to-report pick-cluster-centers [ n ]
+  let centers []
+  repeat n [
+    let pool patches with [ ((distancexy 0 0) > 5) and ((distancexy 0 0) < (max-pxcor - 4)) ]
+    if not empty? centers [
+      let existing centers
+      let spread pool with [ (min (map [ c -> distance c ] existing)) > 6 ]
+      if any? spread [ set pool spread ]
+    ]
+    if any? pool [ set centers lput (one-of pool) centers ]
+  ]
+  report centers
+end
+
+to move-to-stylized-location [ min-dist-from-hub anchors ]
   ;; 55% of facilities land inside a population cluster, the rest disperse.
   ;; Robust fallbacks guarantee this can never crash on an empty patch set.
   let pool no-patches
   ifelse (random-float 1.0) < 0.55
-    [ let anchor one-of cluster-centers
+    [ let anchor one-of anchors
       set pool patches with [
         ((distance anchor) < 6) and
         ((distancexy 0 0) > min-dist-from-hub) and
         (not any? turtles-here) ] ]
-    [ set pool patches with [
+    [ let away anchors
+      set pool patches with [
         ((distancexy 0 0) > min-dist-from-hub) and
         ((distancexy 0 0) < (max-pxcor - 1)) and
         (not any? turtles-here) and
-        ((distance (item 0 cluster-centers)) > 5) and
-        ((distance (item 1 cluster-centers)) > 5) ] ]
+        ((min (map [ c -> distance c ] away)) > 5) ] ]
   if not any? pool [
     set pool patches with [ ((distancexy 0 0) > min-dist-from-hub) and (not any? turtles-here) ] ]
   if not any? pool [
@@ -327,8 +482,9 @@ to setup-public-facilities
     set shape "circle"
     set color red
     set size 1.2
-    move-to-stylized-location 3
+    move-to-stylized-location 3 public-cluster-centers
     set stock-on-hand cc-push-target        ;; start freshly pushed
+    set my-stockout-days 0
     set zero-flags    (list false false false false)
     set zero-episodes (list 0 0 0 0)
     set ever-zero     (list false false false false)
@@ -340,21 +496,36 @@ to setup-ngo-network
     set shape "house"
     set color green
     set size 1.8
-    move-to-stylized-location 5
+    move-to-stylized-location 5 ngo-cluster-centers
 
-    set rdf-capital 241000                  ;; [SPEC]
+    ;; [PAPER 2.2.3.1] SHN's RDF was ~241 MILLION Taka in 2024, across 134 permanent
+    ;; registered facilities => ~1.8 million Taka of revolving capital per static
+    ;; clinic. An earlier build used 241,000 per clinic, understating it ~7.5x.
+    set rdf-capital 1798000
+    set unverified-revenue 0
     set rdf-capital-locked? false
     set days-capital-locked 0
 
-    set stock-on-hand         (list 800 1500 500)    ;; [SPEC]
-    set recorded-stock-ledger (list 800 1500 500)
+    ;; opened at the formula's target level, so a 90-day run is not dominated
+    ;; by a startup transient
+    set stock-on-hand         (list 3400 3750 1830)
+    set recorded-stock-ledger (list 3400 3750 1830)
     set ledger-snapshot-tick  0
-    set safety-stock          (list 200 400 150)     ;; [SPEC]
-    set max-stock-capacity    (list 1200 2500 800)   ;; [SPEC]
+    ;; [SPEC-DERIVED] The specification's (200 400 150) encoded roughly ONE WEEK of
+    ;; cover at the demand levels assumed then. Corrected demand (C1 ~76/day,
+    ;; C2 ~102/day, C3 ~47/day per static, once outreach packs and public
+    ;; diversion are counted) preserves that 7-day intent at the true scale.
+    set safety-stock          (list 650 720 350)
+    ;; physical storage ceiling, set ~30% above the maximum stock level the MSH
+    ;; formula targets (AMC + safety), so it is a real but rarely-binding limit
+    ;; rather than something that silently overrides the paper's order rule
+    set max-stock-capacity    (list 4400 4500 2400)
 
     set mean-daily-demand     (list 25 55 22)        ;; [SPEC]
     set forecast-daily-demand mean-daily-demand
-    set demand-history        (list mean-daily-demand)
+    ;; seeded with a full month at the baseline rate so Average Monthly Consumption
+    ;; is well-defined from day 1 (a 90-day run has no time for a warm-up period)
+    set demand-history        (n-values demand-history-days [ -> initial-consumption-estimate ])
     set requested-today       (list 0 0 0)
     set dispensed-today       (list 0 0 0)
     set paper-error-accum     (list 0 0 0)
@@ -390,10 +561,7 @@ to setup-ngo-network
       if spot != nobody [ move-to spot ]
       create-link-from my-hub [ set color green - 2 set thickness 0.2 ]
 
-      set stock-on-hand (list 150 250 40)
-      set zero-flags    (list false false false)
-      set zero-episodes (list 0 0 0)
-      set ever-zero     (list false false false)
+      set stock-on-hand (list 0 0 0)   ;; empty between rollouts: teams carry stock, they don't hold it
     ]
   ]
 end
@@ -423,7 +591,7 @@ to go
 
   process-public-demand
   process-ngo-static-demand
-  process-ngo-satellite-demand
+  run-satellite-rollouts
   track-zero-stock
 
   update-ledger-visibility
@@ -460,9 +628,9 @@ to update-demand-shocks
   ifelse shock-active?
     [ set shock-days-remaining (shock-days-remaining - 1)
       if shock-days-remaining <= 0 [ set shock-active? false ] ]
-    [ if demand-shocks? and ((random-float 1.0) < shock-onset-probability) [
+    [ if demand-shocks? and (ticks = scheduled-shock-day) [
         set shock-active? true
-        ;; +1 makes shock-duration-max actually attainable (base build had an off-by-one)
+        ;; +1 makes shock-duration-max attainable (an earlier build had an off-by-one)
         set shock-days-remaining (shock-duration-min + random ((shock-duration-max - shock-duration-min) + 1))
       ] ]
   ;; counted after the state machine settles, so the first day of a shock is
@@ -476,8 +644,12 @@ to-report effective-grid-failure-rate
     [ report grid-failure-rate ]
 end
 
-to-report shock-multiplier
-  ifelse shock-active? [ report shock-demand-multiplier ] [ report 1 ]
+to-report c-shock-multiplier [ c-idx ]     ;; NGO classes C1..C3
+  ifelse shock-active? [ report (item c-idx c-shock-multipliers) ] [ report 1 ]
+end
+
+to-report p-shock-multiplier [ p-idx ]     ;; public classes P1..P4
+  ifelse shock-active? [ report (item p-idx p-shock-multipliers) ] [ report 1 ]
 end
 
 to update-connectivity
@@ -512,11 +684,20 @@ to apply-physical-spoilage-and-shrinkage
       (stochastic-round ((item 0 stock-on-hand) * (c1-monthly-spoilage-rate / 30)))
       (stochastic-round ((item 1 stock-on-hand) * ((c2-monthly-spoilage-rate + c2-monthly-shrinkage-rate) / 30)))
       (stochastic-round ((item 2 stock-on-hand) * (c3-monthly-spoilage-rate / 30))))
+    ;; extra heat-driven loss on the temperature-sensitive share of C1 when the
+    ;; grid is failing — the NGO-side counterpart of public cold-chain spoilage
+    if effective-grid-failure-rate > 0.3 [
+      let extra (stochastic-round ((item 0 stock-on-hand) * c1-heat-sensitive-share
+                                   * (c1-monthly-spoilage-rate / 30)
+                                   * (coldchain-outage-accel - 1)))
+      set losses replace-item 0 losses ((item 0 losses) + extra)
+    ]
     (foreach (list 0 1 2) losses [ [ c-idx loss ] ->
       if loss > 0 [
         set stock-on-hand replace-item c-idx stock-on-hand (max (list 0 ((item c-idx stock-on-hand) - loss)))
         set total-expired-units (total-expired-units + loss)
         set waste-value-total (waste-value-total + (loss * (item c-idx c-unit-values)))
+        set ngo-waste-value (ngo-waste-value + (loss * (item c-idx c-unit-values)))
       ]
     ])
   ]
@@ -550,7 +731,8 @@ to process-public-demand
     set routine-referrals (routine-referrals + referred)
     let seeking (total-patients - referred)
 
-    let needs (map [ f -> round (seeking * f * shock-multiplier) ] p-class-fractions)
+    let needs (map [ [ f p-idx ] -> round (seeking * f * (p-shock-multiplier p-idx)) ]
+                   p-class-fractions (list 0 1 2 3))
     (foreach (list 0 1 2 3) needs [ [ p-idx need ] ->
       if need > 0 [
         let avail (item p-idx stock-on-hand)
@@ -569,7 +751,7 @@ to divert-public-patient [ patient-count p-idx ]   ;; runs as a public-cc
     [ ;; P3 cold chain: no NGO or private substitute exists — refer upward
       set coldchain-unserved (coldchain-unserved + patient-count) ]
     [ let remaining patient-count
-      let nearest-ngo min-one-of (turtle-set ngo-statics ngo-satellites) [ distance myself ]
+      let nearest-ngo min-one-of ngo-statics [ distance myself ]
       if nearest-ngo != nobody [
         ask nearest-ngo [ set remaining (serve-from-stock c-idx remaining) ]
       ]
@@ -614,10 +796,20 @@ to credit-ngo-revenue [ c-idx units ]   ;; runs as an NGO facility
   if c-idx = 1 [ set price class2-retail-price ]   ;; C2: RDF retail sale
   if c-idx = 2 [ set price class3-retail-price ]   ;; C3: diagnostics user fee
   if price = 0 [ stop ]                            ;; C1 is free (public ESP commodity)
+  ;; Revenue is booked as UNVERIFIED. It becomes spendable RDF capital only when
+  ;; the clinic's sales data reaches the system (see release-verified-revenue).
   ifelse breed = ngo-satellites
     [ let hub parent-hub
-      ask hub [ set rdf-capital (rdf-capital + (units * price)) ] ]
-    [ set rdf-capital (rdf-capital + (units * price)) ]
+      ask hub [ set unverified-revenue (unverified-revenue + (units * price)) ] ]
+    [ set unverified-revenue (unverified-revenue + (units * price)) ]
+end
+
+;; Called at each successful sync (digital or paper reconciliation): validated
+;; sales convert into spendable capital.  While a clinic is offline this does not
+;; run, so takings accumulate but cannot fund a requisition.
+to release-verified-revenue   ;; runs as an ngo-static
+  set rdf-capital (rdf-capital + unverified-revenue)
+  set unverified-revenue 0
 end
 
 ;; Spillover into the informal private market.  Reports the still-unserved
@@ -636,11 +828,10 @@ end
 
 to process-ngo-static-demand
   ask ngo-statics [
-    let m shock-multiplier
     let needs (list
-      (max (list 0 (round ((random-normal (item 0 mean-daily-demand) 5) * m))))
-      (max (list 0 (round ((random-normal (item 1 mean-daily-demand) 8) * m))))
-      (max (list 0 (round ((random-normal (item 2 mean-daily-demand) 4) * m)))))
+      (max (list 0 (round ((random-normal (item 0 mean-daily-demand) 5) * (c-shock-multiplier 0)))))
+      (max (list 0 (round ((random-normal (item 1 mean-daily-demand) 8) * (c-shock-multiplier 1)))))
+      (max (list 0 (round ((random-normal (item 2 mean-daily-demand) 4) * (c-shock-multiplier 2))))))
     (foreach (list 0 1 2) needs [ [ c-idx need ] ->
       if need > 0 [
         let unfilled (serve-from-stock c-idx need)
@@ -656,27 +847,86 @@ to process-ngo-static-demand
   ]
 end
 
-to process-ngo-satellite-demand
+;; ---------------------------------------------------------------------------
+;; SATELLITE OUTREACH ROLLOUTS
+;;
+;; A satellite is not a standing clinic with its own patient stream competing
+;; with the static. It is a team that, on rollout days, LOADS STOCK FROM THE
+;; STATIC, travels to an outlying site, runs a mini-clinic for the day, and
+;; brings the remainder back. The mechanism that matters here is that inventory
+;; leaves the static's shelf and is consumed off-site.
+;;
+;; This is also a latency amplifier, which is why it belongs in this model: the
+;; static's books show the whole pack issued at departure, and only reconcile
+;; against what was actually used when the team returns.
+;; ---------------------------------------------------------------------------
+
+to-report rollout-day?
+  let day (ticks mod 7)
+  if member? day rollout-days [ report true ]
+  ;; monsoon conditions push more teams into the field
+  report (shock-active? and (day = shock-extra-rollout-day))
+end
+
+to run-satellite-rollouts
+  if not rollout-day? [ stop ]
   ask ngo-satellites [
-    let m shock-multiplier
-    let needs (list
-      (max (list 0 (round ((random-normal 5 2) * m))))
-      (max (list 0 (round ((random-normal 10 3) * m))))
-      (max (list 0 (round ((random-normal 2 1) * m)))))
-    (foreach (list 0 1 2) needs [ [ c-idx need ] ->
+    ;; --- load out from the parent static ---
+    let loaded (list 0 0 0)
+    let hub parent-hub
+    (foreach (list 0 1 2) satellite-pack-size [ [ c-idx want ] ->
+      if want > 0 [
+        let taken 0
+        ask hub [
+          let avail (item c-idx stock-on-hand)
+          set taken min (list avail want)
+          if taken > 0 [
+            set stock-on-hand replace-item c-idx stock-on-hand (avail - taken)
+            ;; the static books the whole pack as issued the moment it departs
+            note-facility-flow c-idx want taken
+          ]
+        ]
+        set loaded replace-item c-idx loaded taken
+      ]
+    ])
+    set stock-on-hand loaded
+
+    ;; --- run the mini-clinic for the day ---
+    ;; 35-50 patients, uniform. Each draws one ESP/MNACH commodity; a fifth also
+    ;; need an administration consumable. Teams carry no retail pharmaceuticals.
+    let session-patients (satellite-patients-min
+                          + random ((satellite-patients-max - satellite-patients-min) + 1))
+    let session-needs (list
+      (round (session-patients * (c-shock-multiplier 0)))
+      0
+      (round (session-patients * satellite-consumable-share * (c-shock-multiplier 2))))
+    (foreach (list 0 1 2) session-needs [ [ c-idx need ] ->
       if need > 0 [
         let unfilled (serve-from-stock c-idx need)
-        ;; unmet C2 patients walk to the parent static hub the same day
-        if (unfilled > 0) and (c-idx = 1) [
-          ask parent-hub [ set unfilled (serve-from-stock c-idx unfilled) ]
-        ]
         if unfilled > 0 [
+          ;; an outreach site has no pharmacy next door: unmet need at a rollout
+          ;; is simply unmet — the patient is not rescued by the private market
           set ngo-unmet-patients (ngo-unmet-patients + unfilled)
           set ngo-unmet-own (ngo-unmet-own + unfilled)
-          let still-unserved (send-to-private unfilled c-idx)
-          if still-unserved > 0 [
-            set completely-unserved-patients (completely-unserved-patients + still-unserved) ]
+          set completely-unserved-patients (completely-unserved-patients + unfilled)
         ]
+      ]
+    ])
+
+    ;; --- return the remainder to the static ---
+    (foreach (list 0 1 2) [ c-idx ->
+      ;; NB: not named "left" — that is a NetLogo turtle command (turn left)
+      let unused-units (item c-idx stock-on-hand)
+      if unused-units > 0 [
+        ask hub [
+          set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + unused-units)
+          ;; the return credit reverses the over-issue booked at departure
+          set requested-today replace-item c-idx requested-today
+              (max (list 0 ((item c-idx requested-today) - unused-units)))
+          set dispensed-today replace-item c-idx dispensed-today
+              (max (list 0 ((item c-idx dispensed-today) - unused-units)))
+        ]
+        set stock-on-hand replace-item c-idx stock-on-hand 0
       ]
     ])
   ]
@@ -688,8 +938,12 @@ end
 ;; line goes from positive stock to zero (checked once daily, after demand).
 ;; ============================================================================
 
+;; Satellites are deliberately EXCLUDED: they hold nothing between rollouts, so
+;; an empty satellite is normal operation, not a stockout. Their supply failures
+;; are captured where they belong — as unmet outreach patients in ngo-unmet-own.
+;; Tracked lines: (12 public CCs x 4 classes) + (3 statics x 3 classes) = 57.
 to track-zero-stock
-  ask (turtle-set public-ccs ngo-statics ngo-satellites) [ update-zero-tracking ]
+  ask (turtle-set public-ccs ngo-statics) [ update-zero-tracking ]
 end
 
 to update-zero-tracking   ;; runs as any facility
@@ -737,6 +991,7 @@ to update-ledger-visibility
         set ledger-snapshot-tick (item 2 (last ready))
         set pending-ledger-updates filter [ u -> (item 0 u) > ticks ] pending-ledger-updates
         set last-sync-tick ticks
+        release-verified-revenue
       ]
     ]
   ]
@@ -760,7 +1015,8 @@ to process-manual-paper-fallback
               set last-sync-tick ticks
               ;; the backlog is current as of today — accurate in DATE, but still
               ;; carrying the paper error in its VALUES
-              set ledger-snapshot-tick ticks ]
+              set ledger-snapshot-tick ticks
+              release-verified-revenue ]
         ] ]
   ]
 end
@@ -778,9 +1034,18 @@ end
 to record-demand-history
   ask ngo-statics [
     set demand-history lput requested-today demand-history
-    if (length demand-history) > forecast-window-days [
+    ;; 30 days retained: the full window feeds Average Monthly Consumption in the
+    ;; maximum-stock formula, the most recent 14 feed the predictive forecast
+    if (length demand-history) > demand-history-days [
       set demand-history but-first demand-history ]
   ]
+end
+
+;; the most recent FORECAST-WINDOW-DAYS entries of the consumption history
+to-report recent-demand-history   ;; runs as an ngo-static
+  let n (length demand-history)
+  let w min (list n forecast-window-days)
+  report sublist demand-history (n - w) n
 end
 
 to update-demand-forecast
@@ -790,10 +1055,11 @@ to update-demand-forecast
   ;; order QUANTITIES still come from the lagged ledger, by design.
   if (ticks mod 7) = 0 [
     ask ngo-statics [
+      let recent recent-demand-history
       set forecast-daily-demand (list
-        ((mean (map [ d -> item 0 d ] demand-history)) * (0.95 + random-float 0.10))
-        ((mean (map [ d -> item 1 d ] demand-history)) * (0.95 + random-float 0.10))
-        ((mean (map [ d -> item 2 d ] demand-history)) * (0.95 + random-float 0.10)))
+        ((mean (map [ d -> item 0 d ] recent)) * (0.95 + random-float 0.10))
+        ((mean (map [ d -> item 1 d ] recent)) * (0.95 + random-float 0.10))
+        ((mean (map [ d -> item 2 d ] recent)) * (0.95 + random-float 0.10)))
     ]
   ]
 end
@@ -826,7 +1092,34 @@ to process-capital-lock-and-bailouts
 end
 
 to-report minimum-c2-batch   ;; runs as an ngo-static
-  report round (min-batch-days * (item 1 mean-daily-demand))
+  ;; based on observed throughput, which includes diverted public patients —
+  ;; not just the clinic's own walk-in mean
+  report round (min-batch-days * ((average-monthly-consumption 1) / 30))
+end
+
+;; Average Monthly Consumption, computed from the clinic's own OBSERVED demand
+;; history — "localized monthly consumption data" (paper 2.2.3.1, citing MSH).
+to-report average-monthly-consumption [ c-idx ]
+  report ((mean (map [ d -> item c-idx d ] demand-history)) * 30)
+end
+
+;; THE MAXIMUM STOCK APPROACH — the order-quantity rule the paper specifies:
+;;   Order Quantity = (Average Monthly Consumption x Review Period)
+;;                    + Safety Stock - Stock On Hand      (MSH 46.8, Box 46-1)
+;;
+;; "Stock On Hand" is deliberately read from RECORDED-STOCK-LEDGER, not from
+;; true stock.  That substitution is the entire research design: the formula is
+;; correct, the number fed into it is stale, and the resulting order is wrong
+;; by exactly the size of the information gap.
+;;
+;; The result is floored at zero (a clinic that believes it is over-stocked
+;; orders nothing) and capped by physical storage capacity.
+to-report max-stock-order-quantity [ c-idx ]
+  let amc (average-monthly-consumption c-idx)
+  let believed (item c-idx recorded-stock-ledger)
+  let raw ((amc * review-period-months) + (item c-idx safety-stock) - believed)
+  let storage-room ((item c-idx max-stock-capacity) - believed)
+  report max (list 0 (round (min (list raw storage-room))))
 end
 
 ;; Reorder decisions.  DELIBERATE: both the trigger and the order quantity read
@@ -839,12 +1132,11 @@ to process-ngo-reorders
     ;; ---- C2: RDF pharmaceuticals via the EDCL/wholesale hub channel ----
     if (not c2-order-outstanding?) and (not rdf-capital-locked?) [
       if (reorder-triggered? 1) [
-        let believed (item 1 recorded-stock-ledger)
-        let desired ((item 1 max-stock-capacity) - believed)
+        let desired (max-stock-order-quantity 1)
         let affordable floor (rdf-capital / class2-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
-          place-requisition 1 qty class2-unit-cost central-processing-lag "edcl-hub"
+          place-requisition 1 qty class2-unit-cost central-processing-lag "ngo-warehouse"
           set c2-order-outstanding? true
         ]
       ]
@@ -856,8 +1148,7 @@ to process-ngo-reorders
     ;; climb back out of the lock.
     if (not c3-order-outstanding?) and (not rdf-capital-locked?) [
       if (reorder-triggered? 2) [
-        let believed (item 2 recorded-stock-ledger)
-        let desired ((item 2 max-stock-capacity) - believed)
+        let desired (max-stock-order-quantity 2)
         let affordable floor (rdf-capital / class3-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
@@ -903,7 +1194,11 @@ to place-requisition [ c-idx qty cost-per lag-days source ]   ;; runs as an ngo-
 end
 
 to process-pending-requisitions
-  ask requisitions with [ order-status = "pending" ] [
+  ;; D4 — resolved OLDEST ORDER FIRST, so an earlier requisition draws from the
+  ;; warehouse before a later one. Under proportional rationing every clinic was
+  ;; short by the same fraction; under FCFS a late order can be lost entirely.
+  foreach (sort-on [ tick-created ] (requisitions with [ order-status = "pending" ])) [ r ->
+   ask r [
     if (ticks - tick-created) >= processing-lag-days [
       let clinic origin-clinic
       let c-idx commodity-class
@@ -914,18 +1209,19 @@ to process-pending-requisitions
       ;; supply constraint: the hub channel can ration; the local wholesale
       ;; market is treated as unconstrained (documented assumption)
       let supply-cap qty
-      if source-channel = "edcl-hub" [ set supply-cap [ edcl-rdf-stock ] of hub ]
+      if source-channel = "ngo-warehouse" [ set supply-cap [ ngo-warehouse-stock ] of hub ]
       ;; financial constraint re-checked at delivery time
       let affordable floor (([ rdf-capital ] of clinic) / cost-per)
       let shipped max (list 0 (min (list qty supply-cap affordable)))
 
       ifelse shipped > 0
-        [ if source-channel = "edcl-hub" [
-            ask hub [ set edcl-rdf-stock (edcl-rdf-stock - shipped) ] ]
+        [ if source-channel = "ngo-warehouse" [
+            ask hub [ set ngo-warehouse-stock (ngo-warehouse-stock - shipped) ] ]
           ask clinic [
             set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + shipped)
             set rdf-capital (rdf-capital - (shipped * cost-per))
           ]
+          set ngo-goods-received-value (ngo-goods-received-value + (shipped * cost-per))
           ifelse shipped = qty
             [ set order-status "fulfilled"
               set reqs-fulfilled-count (reqs-fulfilled-count + 1) ]
@@ -948,6 +1244,7 @@ to process-pending-requisitions
       ]
       die
     ]
+   ]
   ]
 end
 
@@ -957,8 +1254,8 @@ end
 
 to run-replenishment-cycles
   ;; EDCL/wholesale C2 channel restocks every 14 days
-  if (ticks > 0) and ((ticks mod edcl-replenish-interval) = 0) [
-    ask regional-hubs [ set edcl-rdf-stock (edcl-rdf-stock + edcl-replenish-amount) ]
+  if (ticks > 0) and ((ticks mod warehouse-replenish-interval) = 0) [
+    ask regional-hubs [ set ngo-warehouse-stock (ngo-warehouse-stock + warehouse-replenish-amount) ]
   ]
 
   ;; monthly: channel deliveries arrive, then the rigid top-down pushes go out
@@ -971,11 +1268,8 @@ to run-replenishment-cycles
     run-ngo-c1-push
   ]
 
-  ;; weekly: satellite restocking pull + private-market restock
-  if (ticks > 0) and ((ticks mod 7) = 0) [
-    resupply-ngo-satellites
-    restock-private-shops
-  ]
+  ;; weekly private-market restock (satellite rollouts run in the demand phase)
+  if (ticks > 0) and ((ticks mod 7) = 0) [ restock-private-shops ]
 end
 
 to-report push-need [ p-idx ]   ;; runs as a public-cc
@@ -983,58 +1277,44 @@ to-report push-need [ p-idx ]   ;; runs as a public-cc
 end
 
 to run-public-push
-  ;; base-build bug fix: pushes now actually DRAW DOWN the public channel, and
-  ;; are rationed proportionally when the channel cannot cover total need
+  ;; D4 — FIRST-COME-FIRST-SERVED, not proportional rationing.
+  ;; Paper 2.2.4: "the earliest clinics to demand supplies could take on more
+  ;; inventory than their allotment would regularly allow for... leaving other
+  ;; similar clinics underserved." Each clinic in turn takes its FULL need until
+  ;; the channel is empty; whoever arrives after that gets nothing. Order is
+  ;; randomised each cycle, since nothing in the sources says which clinics are
+  ;; consistently faster. The consequence that matters is INEQUALITY BETWEEN
+  ;; CLINICS, which proportional rationing averaged away — see
+  ;; public-stockout-inequality.
   let hub one-of regional-hubs
   foreach (list 0 1 2 3) [ p-idx ->
-    let total-need sum [ push-need p-idx ] of public-ccs
-    let avail [ item p-idx public-channel-stock ] of hub
-    let ration-factor 1.0
-    if total-need > 0 [ set ration-factor min (list 1.0 (avail / total-need)) ]
-    let shipped-total sum [ floor ((push-need p-idx) * ration-factor) ] of public-ccs
-    ask public-ccs [
-      let grant floor ((push-need p-idx) * ration-factor)
-      if grant > 0 [
-        set stock-on-hand replace-item p-idx stock-on-hand ((item p-idx stock-on-hand) + grant) ]
-    ]
-    ask hub [
-      set public-channel-stock replace-item p-idx public-channel-stock
-          (max (list 0 ((item p-idx public-channel-stock) - shipped-total)))
+    foreach (shuffle (sort public-ccs)) [ cc ->
+      let avail [ item p-idx public-channel-stock ] of hub
+      if avail > 0 [
+        let grant min (list ([ push-need p-idx ] of cc) avail)
+        if grant > 0 [
+          ask cc [ set stock-on-hand replace-item p-idx stock-on-hand
+                       ((item p-idx stock-on-hand) + grant) ]
+          ask hub [ set public-channel-stock replace-item p-idx public-channel-stock
+                        (avail - grant) ]
+        ]
+      ]
     ]
   ]
 end
 
 to run-ngo-c1-push
-  ;; SMC/donor C1 push to NGO statics, rationed the same way
+  ;; SMC/donor C1 push to NGO statics, first-come-first-served on the same logic
   let hub one-of regional-hubs
-  let total-need (ngo-class1-push-amount * (count ngo-statics))
-  let avail [ smc-c1-stock ] of hub
-  let ration-factor 1.0
-  if total-need > 0 [ set ration-factor min (list 1.0 (avail / total-need)) ]
-  let grant floor (ngo-class1-push-amount * ration-factor)
-  if grant > 0 [
-    ask ngo-statics [
-      set stock-on-hand replace-item 0 stock-on-hand ((item 0 stock-on-hand) + grant) ]
-    ask hub [ set smc-c1-stock max (list 0 (smc-c1-stock - (grant * (count ngo-statics)))) ]
-  ]
-end
-
-to resupply-ngo-satellites
-  ask ngo-satellites [
-    let hub parent-hub
-    (foreach (list 0 1 2) satellite-stock-targets [ [ c-idx target ] ->
-      let need max (list 0 (target - (item c-idx stock-on-hand)))
-      let hub-avail [ item c-idx stock-on-hand ] of hub
-      let pull min (list need hub-avail)
-      if pull > 0 [
-        ask hub [
-          set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) - pull)
-          ;; transfers count as demand on the hub so forecasts see total offtake
-          note-facility-flow c-idx pull pull
-        ]
-        set stock-on-hand replace-item c-idx stock-on-hand ((item c-idx stock-on-hand) + pull)
-      ]
-    ])
+  foreach (shuffle (sort ngo-statics)) [ st ->
+    let avail [ smc-c1-stock ] of hub
+    let grant min (list ngo-class1-push-amount avail)
+    if grant > 0 [
+      ask st [ set stock-on-hand replace-item 0 stock-on-hand
+                   ((item 0 stock-on-hand) + grant) ]
+      ask hub [ set smc-c1-stock (avail - grant) ]
+      set ngo-goods-received-value (ngo-goods-received-value + (grant * class1-unit-value))
+    ]
   ]
 end
 
@@ -1052,40 +1332,43 @@ to update-running-metrics
   set total-line-days (total-line-days + (4 * (count public-ccs)))
   set facility-stockout-days (facility-stockout-days
       + (count public-ccs with [ not empty? filter [ s -> s <= 0 ] stock-on-hand ]))
+  ask public-ccs [
+    if not empty? filter [ s -> s <= 0 ] stock-on-hand [
+      set my-stockout-days (my-stockout-days + 1) ]
+  ]
   set facility-days (facility-days + (count public-ccs))
   set paper-days-cum (paper-days-cum + (count ngo-statics with [ manual-fallback? ]))
+  set static-stockout-line-days (static-stockout-line-days
+      + (sum [ length filter [ v -> v <= 0 ] stock-on-hand ] of ngo-statics))
+  set static-line-days (static-line-days + (3 * (count ngo-statics)))
 end
 
 ;; ---- outcome metrics 3 & 4 ----
 to-report lines-ever-zero
-  report sum [ length filter [ b -> b ] ever-zero ] of (turtle-set public-ccs ngo-statics ngo-satellites)
+  report sum [ length filter [ b -> b ] ever-zero ] of (turtle-set public-ccs ngo-statics)
 end
 
 to-report zero-episode-total
-  report sum [ sum zero-episodes ] of (turtle-set public-ccs ngo-statics ngo-satellites)
+  report sum [ sum zero-episodes ] of (turtle-set public-ccs ngo-statics)
 end
 
 to-report zero-episodes-per-line
-  let n sum [ length zero-episodes ] of (turtle-set public-ccs ngo-statics ngo-satellites)
+  let n sum [ length zero-episodes ] of (turtle-set public-ccs ngo-statics)
   ifelse n > 0 [ report (zero-episode-total / n) ] [ report 0 ]
 end
 
 to-report ngo-zero-episodes [ c-idx ]
-  report sum [ item c-idx zero-episodes ] of (turtle-set ngo-statics ngo-satellites)
+  report sum [ item c-idx zero-episodes ] of ngo-statics
 end
 
 ;; Decomposition of outcome metric 4 by facility type.  The headline total is
-;; dominated by public CCs (rigid 30-day push, no information mechanics at all)
-;; and by satellites (fixed weekly restock targets), NEITHER of which can
-;; respond to the latency or predictive settings.  Only the statics carry the
+;; dominated by the 48 public-clinic lines, which run on a rigid 30-day push
+;; with no information mechanics at all and therefore CANNOT respond to the
+;; latency or predictive settings.  Only the 9 static lines carry the
 ;; information layer, so STATIC-ZERO-EPISODES is where a treatment effect can
 ;; actually appear.  (docs/05 check 2)
 to-report static-zero-episodes
   report sum [ sum zero-episodes ] of ngo-statics
-end
-
-to-report satellite-zero-episodes
-  report sum [ sum zero-episodes ] of ngo-satellites
 end
 
 to-report public-zero-episodes
@@ -1123,6 +1406,41 @@ end
 ;; never on stock levels, order timing or the predictive toggle.  Use this,
 ;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
 ;; untouched while improving reorder TIMING.  (docs/05 check 2)
+;; ---- validation reporters against published benchmarks ----
+
+;; Share of NGO static commodity-line-days sitting at zero stock.
+;; Comparator: Bekele et al. 2025 report an average daily stock-out of 8.33%
+;; across essential medicines in functioning public facilities using bin-card
+;; management. NGO statics should land in that neighbourhood — far better than
+;; the ~55% facility-stockout rate of Bangladeshi Community Clinics, but not
+;; near zero.
+to-report ngo-static-stockout-pct
+  report 100 * static-stockout-line-days / (max (list 1 static-line-days))
+end
+
+;; Value of expired/wasted stock as a percentage of the value of all goods the
+;; NGO network has taken in. Comparator: the USAID/DELIVER-derived standard
+;; applied by Bekele et al. is that unusable items should be <2% of total item
+;; value.
+to-report waste-pct-of-value
+  report 100 * ngo-waste-value / (max (list 1 ngo-goods-received-value))
+end
+
+;; Spread of stockout burden ACROSS public clinics, as a percentage of the mean.
+;; Under proportional rationing every clinic was short by the same fraction and
+;; this stayed low. Under first-come-first-served (D4) a clinic that arrives late
+;; to a depleted channel gets nothing while an early one is filled, so shortage
+;; is distributed unevenly. This is the metric that makes the FCFS mechanism
+;; visible: information latency does not merely cause shortages, it decides
+;; WHO bears them.
+to-report public-stockout-inequality
+  let burdens [ my-stockout-days ] of public-ccs
+  let m mean burdens
+  ifelse m > 0
+    [ report 100 * (standard-deviation burdens) / m ]
+    [ report 0 ]
+end
+
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
 end
@@ -1161,6 +1479,13 @@ end
 
 to-report mean-rdf-capital
   report mean [ rdf-capital ] of ngo-statics
+end
+
+;; Takings that exist physically but cannot yet be spent because the sale has
+;; not been digitally validated.  This is the financial cost of information
+;; latency (paper 2.2.4) and should rise sharply during connectivity outages.
+to-report mean-unverified-revenue
+  report mean [ unverified-revenue ] of ngo-statics
 end
 
 ;; ---- raw requisition log export (optional; press the button after a run) ----

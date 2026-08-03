@@ -13,21 +13,27 @@ widening and narrowing gap between the two is the object of study, not a bug.
 
 ## Start here
 
-Read the docs in order. You do not need to read any code.
+### 👉 **[docs/00-START-HERE.md](docs/00-START-HERE.md)** — the only document you need to get the model running and collecting data.
+
+Everything below is reference material for the write-up. You do not need to
+read any code, and you never need to open more than one file to run the model.
 
 | Doc | What it gives you |
 |---|---|
-| **[docs/01-PASTE-THIS-CODE.md](docs/01-PASTE-THIS-CODE.md)** | The complete Code tab as one pasteable block |
+| **[docs/00-START-HERE.md](docs/00-START-HERE.md)** | **Start here.** Load the code, verify it, run the experiment, get your data file |
+| [docs/01-PASTE-THIS-CODE.md](docs/01-PASTE-THIS-CODE.md) | Where the code lives (the code itself is in `model/CodeTab.txt`) |
 | **[docs/02-INTERFACE-SETUP.md](docs/02-INTERFACE-SETUP.md)** | Every widget, click by click, in the order to build them |
 | **[docs/03-MODEL-DOCUMENTATION.md](docs/03-MODEL-DOCUMENTATION.md)** | Plain-English walkthrough of every procedure |
 | **[docs/04-ASSUMPTIONS-AND-LIMITATIONS.md](docs/04-ASSUMPTIONS-AND-LIMITATIONS.md)** | What is sourced, what is a named assumption, what is out of scope |
 | **[docs/05-VERIFICATION-CHECKS.md](docs/05-VERIFICATION-CHECKS.md)** | Four checks you can run yourself to confirm correct behavior |
 | **[docs/06-CHANGELOG.md](docs/06-CHANGELOG.md)** | Every bug found in the previous build and why each fix was needed |
 | **[docs/07-BEHAVIORSPACE.md](docs/07-BEHAVIORSPACE.md)** | Running 640 replications and aggregating with variance |
+| [docs/08-PARAMETER-CROSSCHECK.md](docs/08-PARAMETER-CROSSCHECK.md) | Parameter-by-parameter provenance checklist |
+| [docs/09-PAPER-ALIGNMENT.md](docs/09-PAPER-ALIGNMENT.md) | What the research paper confirmed and what it changed |
+| **[docs/10-PRE-FLIGHT.md](docs/10-PRE-FLIGHT.md)** | **Read before running: what to verify, every number I guessed, ranked by impact** |
 
-**Order of operations, first time:** build the four widgets in
-`02` Phase A → paste the code from `01` → build the rest of the widgets in
-`02` Phases C–E → run the checks in `05`.
+**If you are setting the model up from scratch for the first time:** build the
+four widgets in `02` Phase A first, then follow `00-START-HERE.md`.
 
 ## Files
 

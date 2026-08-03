@@ -84,6 +84,9 @@ monitors = [
     ("cold-chain refer",   "coldchain-unserved",             0),
     ("pub avail % (avg)",  "public-availability-pct",        1),
     ("pub f-stockout %",   "public-facility-stockout-pct",   1),
+    ("stockout inequality","public-stockout-inequality",     1),
+    ("NGO stockout %",     "ngo-static-stockout-pct",        1),
+    ("waste % of value",   "waste-pct-of-value",             2),
     ("ledger age (days)",  "mean-ledger-age-days",           2),
     ("static zero eps",    "static-zero-episodes",           0),
     ("C2 ledger gap",      "mean-ledger-gap-c2",             1),
@@ -91,6 +94,7 @@ monitors = [
     ("shock days",         "total-shock-days",               0),
     ("req fill rate",      "requisition-fill-rate",          2),
     ("mean RDF capital",   "mean-rdf-capital",               0),
+    ("unverified takings", "mean-unverified-revenue",        0),
     ("donor bailouts",     "donor-bailouts-total",           0),
     ("shock active?",      "shock-active?",                  0),
 ]
@@ -118,7 +122,7 @@ info = """# Bangladesh Health Clinic Information Latency Model (hardened build v
 
 Full plain-English documentation lives in the repository docs/ folder:
 01 pasteable code, 02 interface setup, 03 procedure walkthrough,
-04 assumptions & limitations, 05 verification checks, 06 changelog, 07 BehaviorSpace.
+04 assumptions & limitations, 05 verification checks, 06 changelog, 07 BehaviorSpace, 08 parameter cross-check, 09 paper alignment.
 
 Core mechanic: NGO reorder decisions read a lagged, error-corrupted ledger
 (recorded-stock-ledger), never true stock-on-hand. The gap between the two is
@@ -182,20 +186,23 @@ metrics = [
     "ngo-unmet-patients", "ngo-unmet-own", "ngo-unmet-diverted",
     "waste-value-total", "lines-ever-zero",
     "zero-episode-total", "zero-episodes-per-line",
-    "static-zero-episodes", "satellite-zero-episodes", "public-zero-episodes",
+    "static-zero-episodes", "public-zero-episodes",
     "completely-unserved-patients", "coldchain-unserved", "private-rescues",
     "reqs-fulfilled-count", "reqs-partial-count", "reqs-lost-count",
     "requisition-fill-rate", "public-availability-pct",
-    "public-facility-stockout-pct", "pct-time-on-paper",
+    "public-facility-stockout-pct", "public-stockout-inequality",
+    "ngo-static-stockout-pct",
+    "waste-pct-of-value", "pct-time-on-paper",
     "mean-ledger-age-days", "mean-ledger-gap-c2",
-    "mean-rdf-capital", "donor-bailouts-total", "total-shock-days",
+    "mean-rdf-capital", "mean-unverified-revenue",
+    "donor-bailouts-total", "total-shock-days",
 ]
 metric_xml = "\n    ".join(f"<metric>{m}</metric>" for m in metrics)
 behaviorspace = f"""<experiments>
   <experiment name="latency-experiment" repetitions="20" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
-    <timeLimit steps="1095"/>
+    <timeLimit steps="90"/>
     {metric_xml}
     <enumeratedValueSet variable="info-latency-severity">
       <value value="0"/>
@@ -236,28 +243,32 @@ nlogo = "\n".join([
 (ROOT / "BangladeshHealthClinicLatency.nlogo").write_text(nlogo)
 
 # ------------------------------------------- docs/01 (pasteable code block)
-doc01 = f"""# Deliverable (a): the complete Code tab
+doc01 = """# Deliverable (a): the complete Code tab
 
-**What this is:** the entire replacement Code tab for the model, as one block.
+## ⚠️ Do not copy code from this page
 
-**Before you paste** — the code refers to four Interface widgets
-(`grid-failure-rate`, `info-latency-severity`, `predictive-modeling?`,
-`demand-shocks?`). Create those four widgets FIRST, following steps 1-6 of
-`02-INTERFACE-SETUP.md`. If you paste the code before the widgets exist,
-NetLogo shows an error like "Nothing named GRID-FAILURE-RATE has been
-defined" — that is expected, and it disappears once the widgets exist.
+This page deliberately contains **no code**. An earlier version embedded the
+code below a block of English instructions, and copying the whole page pasted
+that English into NetLogo, which reported an error on every line of it.
 
-**How to paste:**
-1. Open NetLogo 7.0.4 and click the **Code** tab.
-2. Select everything already there (Ctrl+A / Cmd+A) and delete it.
-3. Copy everything inside the code fence below (from the first `;;` line to
-   the very last line) and paste it in.
-4. Click **Check**. With the four widgets in place it should compile with no
-   errors.
+**Copy the code from the file that contains nothing but code:**
 
-```netlogo
-{CODE.rstrip()}
-```
+> **[model/CodeTab.txt](../model/CodeTab.txt)**
+
+Open it on GitHub and use the **"Copy raw file"** button at the top right of
+the code box — one click, guaranteed complete, no prose.
+
+Step-by-step instructions, including what to check afterwards and how to undo
+if something looks wrong, are in **[00-START-HERE.md](00-START-HERE.md)**.
+
+## What the Code tab needs in order to compile
+
+The code refers to four Interface widgets that must exist first:
+`grid-failure-rate` (slider), `info-latency-severity` (slider),
+`predictive-modeling?` (switch) and `demand-shocks?` (switch). If they are
+missing, NetLogo reports `Nothing named GRID-FAILURE-RATE has been defined`.
+Building them is Phase A of [02-INTERFACE-SETUP.md](02-INTERFACE-SETUP.md);
+if you already built them in an earlier session, there is nothing to redo.
 """
 (ROOT / "docs").mkdir(exist_ok=True)
 (ROOT / "docs" / "01-PASTE-THIS-CODE.md").write_text(doc01)

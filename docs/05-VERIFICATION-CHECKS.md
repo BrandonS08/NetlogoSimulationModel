@@ -10,8 +10,14 @@ reading code.
 > metric that cannot test the claim it was aimed at. Both errors were in the
 > *instructions*, not in the model. Details in `06-CHANGELOG.md` Part 5.
 
-Before starting: complete `02-INTERFACE-SETUP.md`, including the three
-monitors added in Phase D.2.
+Before starting: complete `02-INTERFACE-SETUP.md`, including the monitors
+added in Phase D.2.
+
+> **Run length.** The model now stops automatically at **day 90**, per your
+> paper's stated study period. Every check below is written for a 90-day run.
+> Where a check needs more signal than 90 days gives, it asks you to repeat the
+> run a few times and compare averages instead — which is better practice
+> anyway. Do not edit `simulation-length-days` to work around this.
 
 ---
 
@@ -33,7 +39,7 @@ baseline rate. So with shocks On, clinics still lose connectivity even at
 freezes during those episodes. That is correct model behavior; the original
 version of this check simply did not describe a clean control condition.
 
-**Steps:** set the three controls, click **setup**, then **go**, run ~500 days.
+**Steps:** set the three controls, click **setup**, then **go**. It stops on its own at day 90.
 
 **Expected:**
 - "C2 ledger gap" = **0.0** for the whole run
@@ -44,8 +50,8 @@ version of this check simply did not describe a clean control condition.
   push rigidity, not information failure
 
 **Then the opposite extreme:** `info-latency-severity` = **3**,
-`grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run ~500 days.
-Expect ledger gap in the hundreds of units, ledger age well above 9 days,
+`grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run to day 90.
+Expect a ledger gap in the hundreds of units, ledger age well above 9 days,
 "% time on paper" above 60%, and clearly worse unmet demand.
 
 *If the first condition shows any nonzero gap or paper time, report it — that
@@ -77,12 +83,15 @@ statistically identical across the two arms.
 **Steps:**
 1. `info-latency-severity` = 2, `grid-failure-rate` = 0.25, `demand-shocks?`
    On, `predictive-modeling?` **Off**.
-2. setup → go → run to day **1000**. Record: **static zero episodes**,
+2. setup → go → let it run to day **90**. Record: **static zero episodes**,
    **unmet @ NGO**, **ledger age (days)**, **% time on paper**.
-3. Flip `predictive-modeling?` **On**. setup → go → run to day 1000. Record the
+3. Flip `predictive-modeling?` **On**. setup → go → run to day 90. Record the
    same four.
-4. **Repeat both arms at least 3 times** and compare averages, not single runs
-   (see check 5 — single-run differences under ~10% are noise).
+4. **Repeat both arms at least 5 times** and compare averages, not single runs.
+   Ninety days is a short window, so run-to-run noise is larger than it was on
+   the old long runs — treat differences under ~15% in a single pair as
+   meaningless. (If you want a properly powered answer, the BehaviorSpace
+   experiment does exactly this comparison at 20 replications per cell.)
 
 **Expected:**
 
@@ -95,13 +104,13 @@ statistically identical across the two arms.
 | C2 ledger gap | Lower — and that is fine | Confounded by stock volatility, as explained above |
 
 **Use "static zero episodes", not the headline "zero episodes" total.** The
-total counts all 84 lines, and it is dominated by public clinics (rigid
-30-day push, no information mechanics whatsoever) and satellites (fixed weekly
-restock targets). Neither can respond to the predictive toggle, so they add a
-large constant that buries the effect. A total moving from 3,574 to 3,642 is
-noise in a component that *cannot* respond; the statics-only figure is the one
-carrying the signal. The same dilution applies to "unmet @ NGO", which is why
-"...of which own" exists as a separate monitor.
+total covers 57 commodity lines, of which 48 belong to public clinics running a
+rigid 30-day push with no information mechanics whatsoever. Those cannot respond
+to the predictive toggle at all, so they contribute a large constant that buries
+the effect; only the 9 static lines carry the signal. The same dilution applies
+to "unmet @ NGO", which is why "...of which own" exists as a separate monitor.
+(Satellites are excluded from stockout tracking entirely — they hold nothing
+between rollouts, so an empty team is normal operation, not a stockout.)
 
 *If **ledger age** drops when predictive turns On, that is a genuine violation
 of the design — report it. If **static zero episodes** shows no improvement
@@ -112,9 +121,9 @@ across three paired runs, the predictive arm is inert.*
 ## Check 3 — Shock switch and outage extremes
 
 1. `demand-shocks?` **Off**, defaults otherwise (grid 0.1, severity 1,
-   predictive Off). setup → run ~800 days. Expect "shock active?" *false* all
-   run, and smooth growth in cold-chain referrals and waste.
-2. `demand-shocks?` **On**, `grid-failure-rate` **0.5**. setup → run ~800 days.
+   predictive Off). setup → run to day 90. Expect "shock active?" *false* for
+   the entire run, and smooth growth in cold-chain referrals and waste.
+2. `demand-shocks?` **On**, `grid-failure-rate` **0.5**. setup → run to day 90.
    Expect "% time on paper" climbing toward 75–95%, "req fill rate" clearly
    below the step-1 run, "donor bailouts" often nonzero, and Plot 1 showing
    long flat shelves in the "recorded" pen (frozen ledger) while the "true"
@@ -125,12 +134,14 @@ across three paired runs, the predictive arm is inert.*
 ## Check 4 — Calibration benchmark replication (validation)
 
 1. All defaults (grid 0.1, severity 1, predictive Off, shocks On).
-2. setup → run to at least day 1000.
+2. setup → run to day 90.
 3. Expect "pub avail % (avg)" in the **40–50%** band (benchmark: WHO 2015
    figure of 43%) and "pub f-stockout %" in roughly **50–65%**.
 
-**Expect these to be tight, not variable** — see check 5. Landing on ~43%
-almost exactly on every run is the correct behavior, not a bug.
+**Expect these to be fairly tight** — see check 5 for why. Over 90 days the
+averaging is across ~4,300 line-days rather than 48,000, so expect a little
+more run-to-run movement than the old long runs showed, but still convergence
+near the same value.
 
 *If availability sits far outside the band, adjust the `cc-push-target` list in
 `setup-parameters` — one line, tagged [CALIBRATED]. Each entry ≈ class daily
@@ -144,7 +155,7 @@ Worth running because the calibration monitors look suspiciously stable, and
 you should be able to explain why to a reviewer.
 
 **Why the stable ones are stable.** `pub avail %` is a running average over
-12 clinics × 4 commodity lines × 1,000 days ≈ **48,000 line-days**. By the law
+12 clinics × 4 commodity lines × 90 days ≈ **4,300 line-days**. By the law
 of large numbers its standard error is a fraction of a percentage point, so it
 converges to the same value every run. On top of that, the mechanism driving
 it is nearly deterministic: push to target every 30 days, deplete at a
@@ -154,12 +165,12 @@ the same number each run is exactly what a correctly working stochastic model
 does — the same reason a fair coin flipped 48,000 times always lands near 50%.
 
 **How to confirm the randomness is genuinely there.** Run the model 3 times
-with identical settings (defaults, 1,000 days) and compare these
+with identical settings (defaults, 90 days) and compare these
 *low-aggregation* monitors, which should visibly differ each run:
 
 | Monitor | Expect across runs |
 |---|---|
-| **shock days** (`total-shock-days`) | Large swings — a Poisson-style arrival process with only ~6 events in 3 years. Values of 40 and 90 are both normal. |
+| **shock days** (`total-shock-days`) | Varies 7–21 by design — one shock per run, duration drawn at random. |
 | **donor bailouts** | Often differs, sometimes 0 vs several |
 | **static zero episodes** | Should differ by several percent |
 | **mean RDF capital** | Should differ noticeably |
@@ -176,3 +187,31 @@ BehaviorSpace assigns independent seeds automatically.
 stable by construction), and report the four *outcome* metrics as means with
 standard deviations across BehaviorSpace replications, since those are the
 ones with meaningful run-to-run variance.
+
+---
+
+## Check 6 — The two independent validation benchmarks (added with the Bekele source)
+
+Unlike check 4, **nothing in the model was tuned to hit these**. They are
+predictions, which makes them real validation rather than a consistency check.
+
+1. Defaults (grid 0.1, severity 1, predictive Off, shocks On). setup → run to
+   day 90.
+2. Read two monitors:
+
+| Monitor | Expected | Benchmark |
+|---|---|---|
+| `NGO stockout %` | roughly **5–15%** | Bekele et al. 2025: average daily stock-out of 8.33% in functioning facilities using bin-card management |
+| `waste % of value` | roughly **0.5–3%** | USAID/DELIVER standard: unusable items should be <2% of total item value |
+
+**How to read the result honestly.** Landing inside both ranges is meaningful
+external validation and should be reported. Landing outside is *not
+necessarily* a failure — Bekele's facilities are Ethiopian public hospitals and
+health centres, not Bangladeshi NGO clinics, so a systematic difference is
+plausible and can be discussed. What matters is that you report the achieved
+value either way, and do not quietly retune the model to hit a number it was
+never fitted to.
+
+If `NGO stockout %` comes out near zero, that is worth investigating — it would
+suggest the statics are over-supplied and the latency mechanism has nothing to
+bite on.
