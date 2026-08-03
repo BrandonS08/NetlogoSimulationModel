@@ -27,7 +27,7 @@ latency machinery and by nothing else.
 
 **The control condition requires THREE settings, not two:**
 
-1. `info-latency-severity` = **0**
+1. `environmental-latency-severity` = **0**
 2. `grid-failure-rate` = **0**
 3. `demand-shocks?` = **Off**  ← this one is essential
 
@@ -49,7 +49,7 @@ hundred days — that is plenty for this check — then stop.
 - stockouts still occur (public availability still ~43%) — scarcity comes from
   push rigidity, not information failure
 
-**Then the opposite extreme:** `info-latency-severity` = **3**,
+**Then the opposite extreme:** `environmental-latency-severity` = **3**,
 `grid-failure-rate` = **0.4**, `demand-shocks?` = **On**. setup, run ~500 days.
 Expect a ledger gap in the hundreds of units, ledger age well above 9 days,
 "% time on paper" above 60%, and clearly worse unmet demand.
@@ -77,11 +77,11 @@ result** (latency costs less when inventory is better managed), but it is
 
 The metric that *can* test it is **"ledger age (days)"** — how many days out of
 date the ledger is. That depends only on connectivity and
-`info-latency-severity`. Order timing cannot change it, so it must come out
+`environmental-latency-severity`. Order timing cannot change it, so it must come out
 statistically identical across the two arms.
 
 **Steps:**
-1. `info-latency-severity` = 2, `grid-failure-rate` = 0.25, `demand-shocks?`
+1. `environmental-latency-severity` = 2, `grid-failure-rate` = 0.25, `demand-shocks?`
    On, `predictive-modeling?` **Off**.
 2. setup → go → let it run to completion (day 3,650). Record: **static zero episodes**,
    **unmet @ NGO**, **ledger age (days)**, **% time on paper**.

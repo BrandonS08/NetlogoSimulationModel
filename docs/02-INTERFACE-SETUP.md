@@ -4,8 +4,9 @@ This document lists **every widget the model needs**, with exact names, ranges
 and defaults, and step-by-step click instructions. Follow the phases **in
 order** — the code cannot compile until Phase A is done.
 
-Widget decision (from Part D of the handoff): the three research parameters
-(`grid-failure-rate`, `info-latency-severity`, `predictive-modeling?`) are now
+Widget decision (from Part D of the handoff): the research parameters
+(`grid-failure-rate`, `environmental-latency-severity`,
+`bureaucratic-latency-severity`, `predictive-modeling?`) are now
 **real Interface widgets**, not values hard-coded in `setup`. This was not
 optional: BehaviorSpace (deliverable 5) can only vary parameters that live in
 widgets without `setup` overwriting them. A fourth widget, `demand-shocks?`,
@@ -22,7 +23,7 @@ without environmental shocks, so you need a clean off switch.
 
 ---
 
-## Phase A — the four parameter widgets (do this BEFORE pasting the code)
+## Phase A — the five parameter widgets (do this BEFORE pasting the code)
 
 ### A1. Slider: `grid-failure-rate`
 1. Right-click empty space → **Slider**.
@@ -36,9 +37,9 @@ roughly one day in ten — this is the environmental-infrastructure factor from
 your paper's information-latency framework, and one of the two main
 experimental dials.
 
-### A2. Slider: `info-latency-severity`
+### A2. Slider: `environmental-latency-severity`
 1. Right-click empty space → **Slider**.
-2. **Global variable**: `info-latency-severity`
+2. **Global variable**: `environmental-latency-severity`
 3. **Minimum**: `0`   **Increment**: `1`   **Maximum**: `3`   **Value**: `1`
 4. Click **OK**.
 
@@ -46,6 +47,29 @@ experimental dials.
 first two stages of your paper's three-stage latency decomposition) and to the
 paper-record error rate. `0` = a perfect, instantly-synced information system
 (the control condition); `1` = baseline; `3` = severely degraded digitization.
+
+### A2b. Slider: `bureaucratic-latency-severity`
+1. Right-click empty space → **Slider**.
+2. **Global variable**: `bureaucratic-latency-severity`
+3. **Minimum**: `0`   **Increment**: `0.25`   **Maximum**: `3`   **Value**: `1`
+4. Click **OK**.
+
+*What it is:* the **second, independent** latency dial. It scales stage 3 of
+your paper's framework — central processing lag, the time regional
+administrators take to evaluate synced logs and issue purchase orders — which
+§2.2.4 describes as *"primarily caused by human rather than environmental
+lag."* The slider above (`environmental-latency-severity`) covers stages 1 and
+2, which are technical in origin. Separating them is what lets you ask which
+policy lever matters more: fixing connectivity, or fixing approval bureaucracy.
+
+At the default of `1` the model behaves exactly as it did before this slider
+existed. `0` means instant approval; `3` means approval takes three times as
+long as the baseline two days.
+
+*Note on the step size:* this slider steps in 0.25, while
+`environmental-latency-severity` steps in whole numbers. That is deliberate —
+you asked for the finer step here — but if you would rather they match, edit
+either slider's Increment field.
 
 ### A3. Switch: `predictive-modeling?`
 1. Right-click empty space → **Switch**.
@@ -74,7 +98,7 @@ for shock-free control runs.
 Now follow `01-PASTE-THIS-CODE.md`: paste the whole code block into the
 **Code** tab and click **Check**. It should compile silently. If you see
 *"Nothing named GRID-FAILURE-RATE has been defined"* (or similar), one of the
-four Phase A widgets is missing or its name has a typo — the names must match
+five Phase A widgets is missing or its name has a typo — the names must match
 letter for letter, including the `?` on the two switches.
 
 ---
@@ -153,6 +177,7 @@ reporters are new.
 | `ngo-static-stockout-pct` | NGO stockout %      | 1 | Validation benchmark: compare against ~8.33% (Bekele et al. 2025). |
 | `waste-pct-of-value`      | waste % of value    | 2 | Validation benchmark: compare against the <2% USAID/DELIVER standard. |
 | `mean-unverified-revenue` | unverified takings  | 0 | Money taken at the counter that cannot yet be spent because the sale is unsynced. Spikes during outages. |
+| `effective-bureaucratic-lag` | effective bureaucratic lag (days) | 2 | Stage-3 approval delay actually in force — `central-processing-lag × bureaucratic-latency-severity`. Reads 2.00 at the default. **Type the reporter name exactly as shown**, not the multiplication expression: `central-processing-lag` is a per-clinic variable and a monitor cannot read it directly. |
 | `total-shock-days`        | shock days          | 0 | Cumulative days spent under environmental shock — a high-variance metric, useful for confirming run-to-run randomness (check 5). |
 
 If screen space is tight, `ledger age (days)` and `static zero eps` are the two

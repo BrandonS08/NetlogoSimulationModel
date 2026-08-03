@@ -81,7 +81,7 @@ stock cards and physical counts is exactly what you need. Even a range (say
 5–20%) lets you cite it and run the range as a sensitivity.
 
 **If you find nothing:** say so explicitly in Limitations, and note that
-`info-latency-severity` sweeps this parameter across a 4× range in the
+`environmental-latency-severity` sweeps this parameter across a 4× range in the
 experiment — which means your results already show whether conclusions depend
 on the value. That is a genuinely good answer.
 

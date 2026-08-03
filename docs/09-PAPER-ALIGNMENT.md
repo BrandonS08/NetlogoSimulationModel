@@ -399,7 +399,7 @@ fraction, so shortage was invisible as a *distributional* phenomenon. Under
 FCFS the same total shortfall lands unevenly. It supports a claim your paper
 gestures at but could not previously demonstrate: **information latency does
 not merely cause shortages, it determines who bears them.** Expect this metric
-to rise with `info-latency-severity` and during shocks.
+to rise with `environmental-latency-severity` and during shocks.
 
 ### D3 — Cross-type independent placement (implemented, as you specified)
 

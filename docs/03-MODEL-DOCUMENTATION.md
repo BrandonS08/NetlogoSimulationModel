@@ -155,7 +155,7 @@ behavior. All of it lives in `update-ledger-visibility`,
 
 **Connected, digital mode.** Each day the clinic's true closing stock enters a
 sync queue and becomes visible to the ledger only
-`(dispensation-lag + sync-lag) × info-latency-severity` days later (stage 1:
+`(dispensation-lag + sync-lag) × environmental-latency-severity` days later (stage 1:
 consumption-to-entry delay; stage 2: batching/upload delay). So in the best
 connected case the ledger is a faithful photograph of the shelf **as it looked
 several days ago** — permanently stale, never fabricated. At severity 0 the
@@ -315,7 +315,7 @@ treatment.** Public community clinics run on a rigid push cycle with no
 information mechanics at all, and satellites restock to fixed weekly targets.
 Both contribute large, essentially constant amounts to `ngo-unmet-patients`,
 `lines-ever-zero` and `zero-episode-total`. Only the three NGO statics carry
-the latency layer, so a change in `info-latency-severity` or
+the latency layer, so a change in `environmental-latency-severity` or
 `predictive-modeling?` can only move the static component. Always report the
 decomposition alongside the total — `ngo-unmet-walkin` vs `ngo-unmet-diverted`,
 and `static-zero-episodes` vs `satellite-zero-episodes` vs

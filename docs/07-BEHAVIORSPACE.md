@@ -10,10 +10,25 @@ seeds, and writes one row per run to a spreadsheet file.
 
 | Factor | Values | Why |
 |---|---|---|
-| `info-latency-severity` | 0, 1, 2, 3 | The latency dose-response — the primary independent variable. 0 is the perfect-information control. |
+| `environmental-latency-severity` | 0, 1, 2, 3 | The latency dose-response — the primary independent variable. 0 is the perfect-information control. |
 | `predictive-modeling?` | true, false | The mitigation arm — the second half of your research question. |
 | `grid-failure-rate` | 0.05, 0.25 | Low vs high infrastructure disruption, which drives paper fallback. |
 | `demand-shocks?` | true, false | With and without environmental shocks. |
+
+**`bureaucratic-latency-severity` is deliberately NOT varied in this design.**
+It stays at its default of 1, so every run carries the baseline two-day
+approval delay and the experiment isolates the environmental dial. If you want
+the environmental-vs-bureaucratic comparison that the new slider exists for,
+add a fifth line to the vary box:
+
+```
+["bureaucratic-latency-severity" 0 1 2 3]
+```
+
+That multiplies the design by four — **2,560 runs**, so budget 4–14 hours, or
+drop repetitions to 10 and `grid-failure-rate` to a single value to bring it
+back to roughly the current runtime. This is the comparison that answers
+"which lever matters more", so it is worth running once properly.
 
 4 × 2 × 2 × 2 = 32 conditions × 20 replications = **640 runs** of 3,650 days
 (10 years). That is enough for means with confidence intervals in every cell.
@@ -26,7 +41,7 @@ seeds, and writes one row per run to a spreadsheet file.
    exactly this:
 
 ```
-["info-latency-severity" 0 1 2 3]
+["environmental-latency-severity" 0 1 2 3]
 ["predictive-modeling?" true false]
 ["grid-failure-rate" 0.05 0.25]
 ["demand-shocks?" true false]
@@ -111,7 +126,7 @@ columns tell you the condition, the metric columns the results.
 For each condition, compute the **mean and standard deviation** of each
 outcome across the 20 replications. The three comparisons your paper needs:
 
-1. **Latency dose-response** — outcomes vs `info-latency-severity`, holding
+1. **Latency dose-response** — outcomes vs `environmental-latency-severity`, holding
    `predictive-modeling?` false. Expect unmet demand, waste and zero-episodes
    to rise monotonically with severity.
 2. **Mitigation effect** — predictive true vs false at each severity level.

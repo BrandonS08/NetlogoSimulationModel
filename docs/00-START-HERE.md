@@ -126,7 +126,7 @@ This is the part that produces your actual results. You only do it once.
    everything in it, and type these four lines exactly:
 
 ```
-["info-latency-severity" 0 1 2 3]
+["environmental-latency-severity" 0 1 2 3]
 ["predictive-modeling?" true false]
 ["grid-failure-rate" 0.05 0.25]
 ["demand-shocks?" true false]
@@ -208,7 +208,7 @@ file. This makes a tiny throwaway version first.
 4. In the **Vary variables** box, replace the four lines with just these two:
 
 ```
-["info-latency-severity" 0 3]
+["environmental-latency-severity" 0 3]
 ["predictive-modeling?" true false]
 ```
 
@@ -288,7 +288,7 @@ The three comparisons your paper needs, all done by averaging the 20 runs in
 each condition:
 
 1. **Does latency cause harm?** Compare `ngo-unmet-walkin` and
-   `static-zero-episodes` across `info-latency-severity` 0 → 1 → 2 → 3, with
+   `static-zero-episodes` across `environmental-latency-severity` 0 → 1 → 2 → 3, with
    `predictive-modeling?` = false. Expect them to rise as severity rises.
 2. **Does prediction help?** At each severity level, compare
    `predictive-modeling?` true vs false. Expect `static-zero-episodes` and

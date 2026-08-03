@@ -17,7 +17,7 @@ class you asked me to hunt for: silent wrong behavior, no crash.
 if not is-connected? [
   set manual-fallback? true
   let real-c2 item 1 stock-on-hand
-  let ledger-error round (real-c2 * reporting-error-rate * info-latency-severity)
+  let ledger-error round (real-c2 * reporting-error-rate * environmental-latency-severity)
   set recorded-stock-ledger replace-item 1 recorded-stock-ledger (real-c2 + ledger-error) ]
 ```
 Every offline day this **overwrote the ledger with the current true stock**
@@ -330,7 +330,7 @@ properties. Recording them because the reasoning belongs in the methodology
 write-up.
 
 ### V1. Check 1 specified an incomplete control condition — *doc fix*
-*Reported:* with `info-latency-severity` = 0 and `grid-failure-rate` = 0,
+*Reported:* with `environmental-latency-severity` = 0 and `grid-failure-rate` = 0,
 "% time on paper" was above zero and the two pens in Plot 1 were very slightly
 apart, where the check said both should be exactly zero.
 
@@ -364,7 +364,7 @@ not evidence about data accuracy.
 
 *Fix:* added `ledger-snapshot-tick` per clinic and the reporter
 `mean-ledger-age-days` — how many days out of date the ledger is. This depends
-only on connectivity draws and `info-latency-severity`, and is mathematically
+only on connectivity draws and `environmental-latency-severity`, and is mathematically
 incapable of responding to order timing, so it is the correct test of "does
 prediction repair the data?". Together with `pct-time-on-paper` it gives two
 independent invariants that must hold across the predictive arms.
