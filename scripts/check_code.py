@@ -62,6 +62,23 @@ setters = set(re.findall(r'(?<!-)\bset\s+([a-zA-Z][\w?!*-]*)', clean))
 undeclared = sorted(setters - g - owns - procs - locals_ - params - lam - WIDGETS - BUILTIN_VARS)
 check(not undeclared, f"every SET target is declared{'' if not undeclared else ': ' + str(undeclared)}")
 
+print("no interface-widget dependency")
+# The recurring paste failure this repo exists to prevent. At commit 35f2ec0 the
+# five research parameters were READ throughout the code but declared nowhere --
+# they were Interface sliders. Pasting that file into a model without those
+# widgets fails on every line that mentions one, with "Nothing named
+# ENVIRONMENTAL-LATENCY-SEVERITY has been defined". The SET-target check above
+# did not catch it, because an undeclared READ is not a SET.
+RESEARCH_PARAMS = ["grid-failure-rate", "environmental-latency-severity",
+                   "bureaucratic-latency-severity", "predictive-modeling?",
+                   "demand-shocks?"]
+for p in RESEARCH_PARAMS:
+    used = re.search(r'(?<![\w?!*-])' + re.escape(p) + r'(?![\w?!*-])', clean)
+    check(p in g, f"{p} declared as a real global"
+                  + ("" if p in g else
+                     " -- READ BY THE CODE BUT NEVER DECLARED; this paste will fail"
+                     if used else " -- missing from globals"))
+
 print("reserved names (authoritative: NetLogo TokenMapping.scala)")
 prims = set((ROOT / "scripts" / "netlogo-primitives.txt").read_text().split())
 reserved = prims | BUILTIN_VARS

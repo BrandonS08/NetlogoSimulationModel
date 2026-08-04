@@ -1,6 +1,23 @@
 ;; ============================================================================
 ;; BANGLADESH HEALTH CLINIC INFORMATION LATENCY MODEL — HARDENED BUILD v2
 ;; ============================================================================
+;; BUILD STAMP — read this first if the Code tab shows errors.
+;;
+;;   Paste version: 2026-08-04-c  (predictive order-quantity reconciliation +
+;;                                 phantom overstock lockout metrics)
+;;
+;;   HOW TO CONFIRM YOU PASTED THIS VERSION: press Ctrl+F in the Code tab and
+;;   search for   PHANTOM-LOCKOUT-DAYS-CUM
+;;     - found     -> you have this build; errors are NOT a stale-paste problem
+;;     - not found -> you are running an OLDER copy. Re-copy the whole file from
+;;                    model/CodeTab.txt on branch
+;;                    claude/netlogo-model-hardening-1bwbh4 and paste again.
+;;
+;;   The error "Nothing named ENVIRONMENTAL-LATENCY-SEVERITY has been defined"
+;;   means exactly one thing: the pasted code is older than the build that made
+;;   the five research parameters ordinary globals. It is never fixed by adding
+;;   a slider back — it is fixed by pasting a current copy.
+;; ============================================================================
 ;; Agent-based model of information latency in decentralized NGO health-clinic
 ;; procurement networks in Bangladesh (NetLogo 7.0.4).
 ;;
