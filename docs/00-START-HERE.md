@@ -9,15 +9,41 @@ click and exactly what you should see afterwards.
    stored in GitHub forever. If a step goes wrong, Step 0 gives you a working
    copy on your own computer to fall back on, and the recovery box at the
    bottom gets you back to working in about 30 seconds.
-2. **What went wrong last time was my mistake, not yours.** I pointed you at a
-   file that begins with 20 lines of English instructions before the code
-   starts. Copying the whole page pasted that English into NetLogo, and
-   NetLogo complained about every line of it. This document points you at a
-   file that contains *nothing but code*, so that cannot happen again.
+2. **The repeated compile failures were a design problem, now fixed.** The code
+   used to require five Interface widgets to exist, with exactly matching
+   names, before it would compile — so every parameter change meant a fragile
+   manual widget edit, and a mismatch produced errors on every line that
+   mentioned the name. **The code no longer needs any widgets at all.** It
+   compiles in a completely empty NetLogo model. That whole category of error
+   is gone.
 
 ---
 
-## Step 0 — Make a safety copy (60 seconds, do not skip)
+## Step 0a — DELETE YOUR OLD SLIDERS AND SWITCHES (one time, important)
+
+The five research parameters are now ordinary variables inside the code.
+NetLogo does not allow a widget and a code variable to share a name, so if you
+still have the old sliders on your Interface tab, the paste will fail with
+**"There is already a global variable called GRID-FAILURE-RATE"**.
+
+On the **Interface** tab, right-click each of these and choose **Delete**:
+
+- slider `grid-failure-rate`
+- slider `info-latency-severity` *(or `environmental-latency-severity`)*
+- slider `bureaucratic-latency-severity` *(if you made it)*
+- switch `predictive-modeling?`
+- switch `demand-shocks?`
+
+**Keep** your buttons, monitors and plots — those are fine.
+
+*Cleanest alternative, if you would rather start fresh:* **File → New**, then
+skip to Step 1. An empty model works, because the code needs nothing built.
+
+✅ **You should see:** no sliders or switches left on the Interface tab.
+
+---
+
+## Step 0b — Make a safety copy (60 seconds, do not skip)
 
 Right now, in NetLogo, with your working model open:
 
@@ -100,6 +126,31 @@ build — code, widgets, experiments — lives inside the model file.
 
 ---
 
+## Step 3c — Make the buttons you need
+
+Right-click empty space on the **Interface** tab → **Button** for each. Type
+the text into **Commands**; leave Forever unchecked unless noted.
+
+| Commands | Forever? | What it does |
+|---|---|---|
+| `setup` | no | Build the world, parameters at their defaults |
+| `go` | **YES** | Run day after day until clicked again |
+| `scenario-perfect-info` | no | Sets up check 1's control condition in one click |
+| `scenario-worst-case` | no | Sets up check 1's opposite extreme |
+| `scenario-predictive-off` | no | Check 2, arm A |
+| `scenario-predictive-on` | no | Check 2, arm B |
+
+Each `scenario-` button does a full setup and then applies its condition, so
+you press one button and then **go**. No sliders to set, nothing to get wrong.
+
+*To change a single parameter by hand instead,* type it into the **Command
+Center** at the bottom of the Interface tab, e.g.
+`set environmental-latency-severity 3` — then press **go**.
+
+Press **Ctrl+S**.
+
+---
+
 ## Step 4 — Quick confidence check (2 minutes)
 
 1. Click the **Interface** tab.
@@ -171,7 +222,10 @@ total-shock-days
 7. **Uncheck** the box that says **"Measure runs at every step"**.
    *(Important — leaving it checked produces a 700,000-row file instead of a
    640-row one.)*
-8. **Setup commands** should say `setup`. **Go commands** should say `go`.
+8. **Setup commands** must say **`setup-experiment`** — not `setup`. This is
+   essential: `setup` resets the research parameters to their defaults and
+   would discard the values BehaviorSpace is trying to vary.
+   **Go commands** should say `go`.
 9. In **Time limit**, type `3650`.
 10. Leave everything else alone. Click **OK**.
 
