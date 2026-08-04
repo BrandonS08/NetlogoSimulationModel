@@ -106,6 +106,10 @@ ngo-statics-own [
 
   ;; --- stockout tracking ---
   zero-flags zero-episodes ever-zero   ;; lists of 3, same semantics as public-ccs
+  phantom-locked?         ;; list of 3 booleans: is this line in PHANTOM OVERSTOCK
+                          ;; LOCKOUT today — physically empty while the ledger
+                          ;; still reads above the reorder trigger?  See
+                          ;; CHECK-PHANTOM-LOCKOUT.
 ]
 
 ngo-satellites-own [
@@ -217,6 +221,8 @@ globals [
   ngo-waste-value ngo-goods-received-value     ;; waste vs goods-in, for the <2% standard
   facility-stockout-days facility-days     ;; running facility-level stockout accounting
   paper-days-cum                           ;; clinic-days spent on paper fallback
+  phantom-lockout-days-cum                 ;; static commodity-line-days spent in
+                                           ;; phantom overstock lockout
 ]
 
 ;; ============================================================================
@@ -533,6 +539,7 @@ to setup-parameters
   set facility-stockout-days 0
   set facility-days 0
   set paper-days-cum 0
+  set phantom-lockout-days-cum 0
 end
 
 to setup-geography
@@ -668,9 +675,10 @@ to setup-ngo-network
     set c2-order-outstanding? false
     set c3-order-outstanding? false
 
-    set zero-flags    (list false false false)
-    set zero-episodes (list 0 0 0)
-    set ever-zero     (list false false false)
+    set zero-flags     (list false false false)
+    set zero-episodes  (list 0 0 0)
+    set ever-zero      (list false false false)
+    set phantom-locked? (list false false false)
   ]
 
   ask ngo-statics [
@@ -1177,8 +1185,10 @@ end
 to update-demand-forecast
   ;; Weekly refresh: trailing mean of OBSERVED demand (patient flow is visible
   ;; on paper day-to-day even when the stock ledger lags) with a narrow noise
-  ;; band.  Used ONLY for reorder TIMING when predictive-modeling? is on —
-  ;; order QUANTITIES still come from the lagged ledger, by design.
+  ;; band.  When predictive-modeling? is on this feeds BOTH halves of the reorder
+  ;; decision — the trigger horizon and the staleness correction on the order
+  ;; quantity.  It is always maintained, so the toggle switches interpretation
+  ;; on and off rather than switching a data source on and off.
   if (ticks mod 7) = 0 [
     ask ngo-statics [
       let recent recent-demand-history
@@ -1234,26 +1244,69 @@ end
 ;;   Order Quantity = (Average Monthly Consumption x Review Period)
 ;;                    + Safety Stock - Stock On Hand      (MSH 46.8, Box 46-1)
 ;;
-;; "Stock On Hand" is deliberately read from RECORDED-STOCK-LEDGER, not from
-;; true stock.  That substitution is the entire research design: the formula is
-;; correct, the number fed into it is stale, and the resulting order is wrong
-;; by exactly the size of the information gap.
+;; "Stock On Hand" is never read from true STOCK-ON-HAND — the clinic cannot see
+;; that.  It is read from the information system.  That substitution is the
+;; entire research design: the formula is correct, the number fed into it is
+;; stale, and the resulting order is wrong by the size of the information gap.
+;;
+;; WHAT THE TWO ARMS DIFFER ON is how the clinic reads its own ledger:
+;;
+;;   predictive-modeling? = FALSE  — the naive arm.  Stock On Hand := the
+;;     recorded ledger, taken at face value.  The clinic behaves as if a
+;;     snapshot from LEDGER-STALENESS-DAYS ago were current, so it silently
+;;     under-orders by roughly the consumption that occurred in between.
+;;
+;;   predictive-modeling? = TRUE   — the mitigation arm.  The clinic still has
+;;     no better data, but it KNOWS its own reporting delay and discounts the
+;;     ledger by the demand its forecast expects across that window:
+;;         Estimated Stock = Recorded Ledger - (Forecast Daily Demand x Staleness)
+;;     floored at zero, because a clinic never plans on negative shelves.
+;;
+;; PREDICTIVE MODE RECONCILES BOTH HALVES OF THE REORDER DECISION — timing and
+;; quantity — and that is the point of this revision.  REORDER-TRIGGERED?
+;; already projected forecast demand across the pipeline to decide WHEN to
+;; order; the quantity was still being computed from the face-value ledger.  The
+;; two halves therefore disagreed: the clinic fired at the right moment and then
+;; asked for the wrong amount, under-ordering by exactly the staleness window it
+;; had just finished reasoning about.  Both now read LEDGER-STALENESS-DAYS, so
+;; the arm is internally consistent.
+;;
+;; This does NOT repair the data, and the model must not be read as claiming it
+;; does.  Forecasting corrects the KNOWN delay only.  It cannot see
+;; PAPER-ERROR-ACCUM — unrecorded dispensing during an outage — because that
+;; error is invisible to the clinic by construction.  MEAN-LEDGER-AGE-DAYS and
+;; PCT-TIME-ON-PAPER are untouched by the toggle.  What the arm separates is
+;; latency the clinic can reason about from corruption it cannot.
 ;;
 ;; The result is floored at zero (a clinic that believes it is over-stocked
-;; orders nothing) and capped by physical storage capacity.
+;; orders nothing) and capped by the storage room it believes it has.  Under
+;; over-correction that cap can be a little generous, which is the honest
+;; symmetric cost of the mitigation: forecast-driven ordering can overshoot and
+;; the surplus shows up later as spoilage, not as a free win.
 to-report max-stock-order-quantity [ c-idx ]
   let amc (average-monthly-consumption c-idx)
   let believed (item c-idx recorded-stock-ledger)
-  let raw ((amc * review-period-months) + (item c-idx safety-stock) - believed)
-  let storage-room ((item c-idx max-stock-capacity) - believed)
+  let on-hand-estimate believed
+  if predictive-modeling? [
+    let fc (item c-idx forecast-daily-demand)
+    set on-hand-estimate max (list 0 (believed - (fc * ledger-staleness-days)))
+  ]
+  let raw ((amc * review-period-months) + (item c-idx safety-stock) - on-hand-estimate)
+  let storage-room ((item c-idx max-stock-capacity) - on-hand-estimate)
   report max (list 0 (round (min (list raw storage-room))))
 end
 
-;; Reorder decisions.  DELIBERATE: both the trigger and the order quantity read
-;; RECORDED-STOCK-LEDGER (the lagged, possibly corrupted belief), never
-;; STOCK-ON-HAND.  Predictive modeling changes only WHEN an order fires (it
-;; projects forecast demand over the pipeline horizon); it cannot repair the
-;; ledger itself — that separation is the research design.
+;; Reorder decisions.  DELIBERATE: both the trigger and the order quantity start
+;; from RECORDED-STOCK-LEDGER (the lagged, possibly corrupted belief), never from
+;; STOCK-ON-HAND — no clinic in this model can observe its own true shelves.
+;;
+;; Predictive modeling changes how that belief is INTERPRETED, in both places at
+;; once: REORDER-TRIGGERED? projects forecast demand across the pipeline to set
+;; the timing, and MAX-STOCK-ORDER-QUANTITY discounts the ledger by forecast
+;; demand across the staleness window to set the quantity.  It still cannot
+;; repair the ledger — paper-fallback error stays invisible to it — and that
+;; separation between correctable delay and uncorrectable corruption is the
+;; research design.
 to process-ngo-reorders
   ask ngo-statics [
     ;; ---- C2: RDF pharmaceuticals from the NGO central warehouse ----
@@ -1299,13 +1352,25 @@ to-report reorder-triggered? [ c-idx ]   ;; runs as an ngo-static
     [ report believed <= trigger-level ]
 end
 
+;; How many days of consumption the ledger is structurally blind to: everything
+;; dispensed since the snapshot it currently reflects.  Stages 1 + 2 only — the
+;; stage-3 approval delay is a procurement lead time, not a data-currency
+;; problem, so it belongs in the horizon below and NOT in this window.
+;;
+;; Single definition on purpose.  Both halves of the predictive reorder decision
+;; read it — PROJECTION-HORIZON for the trigger, MAX-STOCK-ORDER-QUANTITY for
+;; the quantity — so the two can never drift apart as the dials move.
+to-report ledger-staleness-days   ;; runs as an ngo-static
+  report ((dispensation-lag + sync-lag) * environmental-latency-severity)
+end
+
 to-report projection-horizon [ c-idx ]   ;; runs as an ngo-static
   ;; the clinic knows its own institutional delays and projects demand across
   ;; them: procurement lead time + how stale it knows its data to be
   ;; stage 1 + 2 staleness is environmental; the C2 lead time is the stage-3
   ;; bureaucratic approval delay. C3 uses local-procurement-lag unscaled — that
   ;; is a commercial delivery time, not part of the information-latency framework.
-  let staleness ((dispensation-lag + sync-lag) * environmental-latency-severity)
+  let staleness ledger-staleness-days
   let lead ifelse-value (c-idx = 1)
              [ (central-processing-lag * bureaucratic-latency-severity) ]
              [ local-procurement-lag ]
@@ -1478,6 +1543,73 @@ to update-running-metrics
   set static-stockout-line-days (static-stockout-line-days
       + (sum [ length filter [ v -> v <= 0 ] stock-on-hand ] of ngo-statics))
   set static-line-days (static-line-days + (3 * (count ngo-statics)))
+
+  ;; Phantom overstock lockout, refreshed and accumulated in the same pass.
+  ;; Measured HERE — after PROCESS-NGO-REORDERS, before RUN-REPLENISHMENT-CYCLES
+  ;; — so a flagged line is one whose reorder decision was actually taken today
+  ;; against today's ledger, and so it shares a denominator basis with
+  ;; STATIC-STOCKOUT-LINE-DAYS directly above.
+  ask ngo-statics [
+    set phantom-locked? (map [ c-idx -> check-phantom-lockout c-idx ] (range 3))
+  ]
+  set phantom-lockout-days-cum (phantom-lockout-days-cum
+      + (sum [ length filter [ b -> b ] phantom-locked? ] of ngo-statics))
+end
+
+;; ============================================================================
+;; PHANTOM OVERSTOCK LOCKOUT
+;; ============================================================================
+;;
+;; The failure mode this model exists to expose, in its sharpest form.
+;;
+;; ACCUMULATE-PAPER-ERROR gives the recording error a POSITIVE bias: dispensing
+;; that happens during an outage goes unrecorded, so the system believes more
+;; stock remains than truly does.  Combine that with an emptying shelf and the
+;; clinic reaches a state where the physical line is at zero while the ledger
+;; still reads ABOVE the reorder trigger.  Under the naive arm the reorder rule
+;; reads that ledger, concludes the clinic is comfortably stocked, and declines
+;; to order — so the stockout is not merely unnoticed, it is actively PROLONGED
+;; by the information system.  Stock cannot arrive because the system does not
+;; believe it is needed.
+;;
+;; Read the metric carefully.  It measures the STATE, not a per-arm outcome:
+;; empty shelf plus an above-trigger ledger.  Under predictive-modeling? the
+;; same state can occur and still NOT block the order, because REORDER-TRIGGERED?
+;; discounts the ledger by forecast demand before comparing it to the trigger.
+;; That is exactly what makes the metric worth reporting: hold the state fixed
+;; and the arms differ in whether it becomes a lockout.
+to-report check-phantom-lockout [ c-idx ]   ;; runs as an ngo-static
+  report ((item c-idx stock-on-hand) <= 0)
+     and ((item c-idx recorded-stock-ledger) > (item c-idx safety-stock))
+end
+
+;; Cumulative static commodity-line-days spent in the phantom state.
+to-report phantom-lockout-line-days
+  report phantom-lockout-days-cum
+end
+
+;; Of all the NGO static line-days spent at zero stock, what share carried a
+;; ledger that said otherwise.  This is the share of stockouts the information
+;; system was actively concealing rather than merely reporting late.
+to-report pct-stockouts-phantom-caused
+  report 100 * phantom-lockout-days-cum / (max (list 1 static-stockout-line-days))
+end
+
+;; Fraction of a clinic's total takings that are frozen — physically collected
+;; but unspendable until the sale is digitally validated (paper 2.2.4).  The
+;; financial twin of the phantom lockout: one freezes the stock signal, the
+;; other freezes the money that would answer it.  Runs in a turtle context, so
+;; read it as `mean [ frozen-rdf-capital-ratio ] of ngo-statics`.
+to-report frozen-rdf-capital-ratio   ;; runs as an ngo-static
+  let total (rdf-capital + unverified-revenue)
+  ifelse total > 0 [ report unverified-revenue / total ] [ report 0 ]
+end
+
+;; Observer-context companion to the above, so it can be put on a monitor.
+to-report mean-frozen-capital-ratio
+  ifelse any? ngo-statics
+    [ report mean [ frozen-rdf-capital-ratio ] of ngo-statics ]
+    [ report 0 ]
 end
 
 ;; ---- outcome metrics 3 & 4 ----
@@ -1573,12 +1705,6 @@ end
 
 ;; ---- information-layer monitors ----
 
-;; THE clean test of information quality.  How many days out of date is the
-;; ledger?  This depends only on connectivity draws and the ENVIRONMENTAL
-;; severity dial (the bureaucratic dial affects order timing, not data currency) —
-;; never on stock levels, order timing or the predictive toggle.  Use this,
-;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
-;; untouched while improving reorder TIMING.  (docs/05 check 2)
 ;; Stage-3 approval delay actually in force, in days. Exposed as a monitor so
 ;; the bureaucratic dial's effect is visible during a run. Written as a reporter
 ;; because central-processing-lag is an ngo-statics-own variable and a monitor
@@ -1589,6 +1715,12 @@ to-report effective-bureaucratic-lag
     [ report 0 ]
 end
 
+;; THE clean test of information quality.  How many days out of date is the
+;; ledger?  This depends only on connectivity draws and the ENVIRONMENTAL
+;; severity dial (the bureaucratic dial affects order timing, not data currency) —
+;; never on stock levels, order timing or the predictive toggle.  Use this,
+;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
+;; untouched while changing only how the clinic READS that data.  (docs/05 check 2)
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
 end

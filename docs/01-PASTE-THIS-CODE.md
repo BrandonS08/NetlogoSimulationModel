@@ -18,10 +18,15 @@ if something looks wrong, are in **[00-START-HERE.md](00-START-HERE.md)**.
 
 ## What the Code tab needs in order to compile
 
-The code refers to five Interface widgets that must exist first:
-`grid-failure-rate` (slider), `environmental-latency-severity` (slider),
-`bureaucratic-latency-severity` (slider), `predictive-modeling?` (switch) and
-`demand-shocks?` (switch). If they are missing, NetLogo reports
-`Nothing named GRID-FAILURE-RATE has been defined`.
-Building them is Phase A of [02-INTERFACE-SETUP.md](02-INTERFACE-SETUP.md);
-if you already built them in an earlier session, there is nothing to redo.
+**Nothing.** It compiles in a completely empty NetLogo model.
+
+The five research parameters — `grid-failure-rate`,
+`environmental-latency-severity`, `bureaucratic-latency-severity`,
+`predictive-modeling?` and `demand-shocks?` — are ordinary variables declared
+in the code. They used to be Interface widgets that had to exist first, with
+exactly matching names, which is what caused the repeated paste failures.
+
+**If you still have those sliders or switches, delete them before pasting.** A
+widget and a code variable cannot share a name, so the paste will otherwise
+fail with *"There is already a global variable called GRID-FAILURE-RATE"*.
+This is a one-time step — see [00-START-HERE.md](00-START-HERE.md) Step 0a.

@@ -87,6 +87,9 @@ mean-ledger-age-days
 mean-ledger-gap-c2
 mean-rdf-capital
 mean-unverified-revenue
+mean-frozen-capital-ratio
+phantom-lockout-line-days
+pct-stockouts-phantom-caused
 effective-bureaucratic-lag
 donor-bailouts-total
 total-shock-days
@@ -146,12 +149,32 @@ outcome across the 10 replications. The three comparisons your paper needs:
    `predictive-modeling?` false. Expect unmet demand, waste and zero-episodes
    to rise monotonically with severity.
 2. **Mitigation effect** — predictive true vs false at each severity level.
-   Expect `static-zero-episodes` and `ngo-unmet-walkin` to fall, while
-   `mean-ledger-age-days` and `pct-time-on-paper` stay **statistically
-   identical** — that pair of results is the finding worth emphasizing:
-   prediction fixes timing without fixing data accuracy. (`mean-ledger-gap-c2`
-   will also fall; that is a genuine secondary result about staleness becoming
-   *less costly*, not evidence of better data. Do not present it as the latter.)
+   Expect `static-zero-episodes`, `ngo-unmet-walkin` and
+   `pct-stockouts-phantom-caused` to fall, while `mean-ledger-age-days` and
+   `pct-time-on-paper` stay **statistically identical** — that pair of results
+   is the finding worth emphasizing: prediction changes how the clinic *reads*
+   its data without making the data any better. (`mean-ledger-gap-c2` will also
+   fall; that is a genuine secondary result about staleness becoming *less
+   costly*, not evidence of better data. Do not present it as the latter.)
+
+   Two checks that keep this claim honest. At
+   `environmental-latency-severity = 0` the predictive and naive arms should be
+   **indistinguishable on every metric** — there is no staleness window to
+   correct, so the mitigation is a no-op and any difference there is noise or a
+   bug. And watch `waste-value-total` as severity rises: forecast-driven
+   ordering can overshoot, so if waste climbs in the predictive arm, report it.
+   A mitigation with a cost is a more credible finding than a free win.
+
+2b. **How much of the damage was concealment** — `pct-stockouts-phantom-caused`
+   deserves its own line in the results. It is the share of NGO static
+   zero-stock line-days that occurred while the ledger read *above* the reorder
+   trigger: stockouts the information system was actively prolonging, not
+   merely reporting late. It should rise with `environmental-latency-severity`
+   (more unrecorded dispensing) and fall with `predictive-modeling?` (the
+   trigger discounts the ledger before comparing). This is the cleanest single
+   number for the argument that the failure is informational rather than
+   logistical — nothing about supply or money changed, only what the system
+   believed.
 3. **Which lever matters more** — the comparison this design exists for. Hold
    everything else fixed and compare the effect of moving
    `environmental-latency-severity` from 0→3 against moving

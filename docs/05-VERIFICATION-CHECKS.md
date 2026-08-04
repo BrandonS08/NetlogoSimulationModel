@@ -64,10 +64,19 @@ wired in.*
 
 ---
 
-## Check 2 — Predictive modeling fixes timing, NOT data accuracy
+## Check 2 — Predictive modeling changes how data is READ, not how good it is
 
-**Claim being tested:** the predictive toggle improves reorder timing while
-leaving the information system's accuracy untouched.
+**Claim being tested:** the predictive toggle improves the clinic's *use* of a
+delayed ledger — both when it orders and how much it orders — while leaving the
+information system's accuracy untouched.
+
+> **What changed in this revision.** The predictive arm used to correct reorder
+> *timing* only, leaving the order *quantity* computed from the face-value
+> ledger. It now also discounts the ledger by forecast demand across the
+> staleness window when sizing the order. The claim under test is unchanged in
+> substance — prediction still cannot repair the data — but state it as "the
+> clinic applies knowledge of its own delay", not "prediction fixes timing
+> only". See changelog Part 8.
 
 **Read this before running — it explains why the obvious metric is the wrong
 one.** "C2 ledger gap" measures `|ledger − true stock|` in units. The ledger is
@@ -87,8 +96,9 @@ statistically identical across the two arms.
 **Steps:**
 1. Click `scenario-predictive-off`.
 2. setup → go → let it run to completion (day 3,650). Record: **static zero episodes**,
-   **unmet @ NGO**, **ledger age (days)**, **% time on paper**.
-3. Click `scenario-predictive-on` → go → run to completion. Record the same four.
+   **unmet @ NGO**, **ledger age (days)**, **% time on paper**,
+   **% stockouts phantom**, **waste value (BDT)**.
+3. Click `scenario-predictive-on` → go → run to completion. Record the same six.
 4. **Repeat both arms at least 3 times** and compare averages, not single runs.
    A ten-year run averages over ~20 shock events, so it is far less noisy than a
    short one, but treat differences under ~10% in a single pair as meaningless.
@@ -101,9 +111,11 @@ statistically identical across the two arms.
 |---|---|---|
 | **ledger age (days)** | **Unchanged** (within ~0.2 days) | The claim under test: prediction cannot repair data currency |
 | **% time on paper** | **Unchanged** | Connectivity is independent of ordering |
-| **static zero episodes** | **Lower** with predictive On | Earlier reordering at the only agents that carry the information layer |
+| **static zero episodes** | **Lower** with predictive On | Earlier *and* correctly-sized reordering at the only agents that carry the information layer |
+| **% stockouts phantom** | **Lower** with predictive On | The trigger discounts the ledger before comparing, so an above-trigger ledger stops blocking the order |
 | unmet @ NGO | Lower, but modestly | Diluted — see note below |
 | C2 ledger gap | Lower — and that is fine | Confounded by stock volatility, as explained above |
+| waste value (BDT) | **May rise** — report it if it does | Forecast-driven ordering can overshoot. This is the honest cost of the mitigation, not a defect |
 
 **Use "static zero episodes", not the headline "zero episodes" total.** The
 total covers 57 commodity lines, of which 48 belong to public clinics running a
@@ -117,6 +129,25 @@ between rollouts, so an empty team is normal operation, not a stockout.)
 *If **ledger age** drops when predictive turns On, that is a genuine violation
 of the design — report it. If **static zero episodes** shows no improvement
 across three paired runs, the predictive arm is inert.*
+
+**Check 2b — the quantity correction must vanish when there is no delay.**
+Click `scenario-perfect-info`, then type `set predictive-modeling? false` (run
+1) or `true` (run 2) into the Command Center before **go**.
+
+At `environmental-latency-severity = 0` the staleness window is zero, so the
+ledger discount subtracts exactly zero units — the order-quantity rule is
+provably identical in both arms. With `bureaucratic-latency-severity` also 0 in
+this scenario, the C2 projection horizon collapses to zero as well, so the
+**entire C2 decision is identical**. Expect C2-driven metrics (**static zero
+episodes**, **C2 ledger gap**) to match within noise.
+
+**One difference is expected and correct:** C3 still reorders slightly earlier
+under predictive, because its horizon includes `local-procurement-lag` (2 days),
+a commercial delivery time deliberately kept outside the information-latency
+framework — it is a real lead time, not a data delay, and forecasting across it
+is legitimate. So a small residual gap on totals is fine; a large gap on the C2
+metrics is not, and would mean the staleness correction is firing where no
+staleness exists — which would inflate every predictive effect in the study.
 
 ---
 

@@ -151,6 +151,25 @@ reporters are new.
 If screen space is tight, `ledger age (days)` and `static zero eps` are the two
 that matter; the other two are convenience.
 
+### Phase D.3 — phantom overstock lockout monitors (add these now)
+
+These expose the model's sharpest failure mode: a line that is **physically
+empty while the ledger still reads above the reorder trigger**, so the reorder
+rule sees a well-stocked clinic and declines to order. The stockout is not
+merely unnoticed — the information system is prolonging it. Re-paste the Code
+tab first; these reporters are new.
+
+| Reporter (type exactly)   | Display name        | Decimals | What it tells you |
+|---------------------------|---------------------|----------|-------------------|
+| `phantom-lockout-line-days` | phantom lockout days | 0 | Cumulative NGO static commodity-line-days spent physically empty with an above-trigger ledger. |
+| `pct-stockouts-phantom-caused` | % stockouts phantom | 1 | Share of all static zero-stock line-days that were in that state — **the share of stockouts the information system was concealing rather than merely reporting late**. This is the number to quote in the discussion. |
+| `mean-frozen-capital-ratio` | frozen capital ratio | 3 | Financial twin: share of clinic takings collected but unspendable pending digital validation. Spikes with the same outages. **Type this name, not `frozen-rdf-capital-ratio`** — the latter is a per-clinic reporter and a monitor evaluates in observer context, where it errors. |
+
+Expect `% stockouts phantom` to rise with `environmental-latency-severity` and
+to fall when `predictive-modeling?` is on, while `ledger age (days)` stays flat
+across that same comparison — together those three monitors tell the whole
+story in one screenshot.
+
 ---
 
 ## Phase E — plots

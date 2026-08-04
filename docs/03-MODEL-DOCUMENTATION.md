@@ -191,6 +191,42 @@ pipeline restarts. The residual paper error then persists in the ledger for
 one more full sync delay before being washed out — so the gap narrows in
 stages, not instantly.
 
+**Phantom overstock lockout** (`check-phantom-lockout`,
+`phantom-lockout-line-days`, `pct-stockouts-phantom-caused`). The positive bias
+above has a sharp end state worth measuring on its own. Combine an emptying
+shelf with a ledger that overstates it and the clinic reaches a line where
+
+> physical stock ≤ 0 **while** the recorded ledger still reads **above** the
+> reorder trigger.
+
+Under the naive arm the reorder rule reads that ledger, concludes the clinic is
+comfortably stocked, and declines to order. The stockout is not merely
+unnoticed — it is **actively prolonged by the information system**. Stock
+cannot arrive because the system does not believe it is needed. This is the
+model's sharpest single illustration of the thesis, and it is the one failure
+mode that cannot be explained away as ordinary supply shortage: the supply
+chain is willing, the money is available, and the order is never placed.
+
+`phantom-lockout-days-cum` counts NGO static commodity-line-days in this state,
+refreshed each tick in `update-running-metrics` immediately after the reorder
+decisions and before replenishment — so a counted line is one whose order was
+genuinely decided against today's ledger, and it shares a denominator basis
+with `static-stockout-line-days`. `pct-stockouts-phantom-caused` reports it as
+a share of all static zero-stock line-days: **the fraction of stockouts the
+information system was concealing rather than merely reporting late.**
+
+*Read the metric as a state, not an outcome.* It records "empty shelf plus
+above-trigger ledger", which can also occur under `predictive-modeling?` — but
+there it need not block the order, because the trigger discounts the ledger by
+forecast demand before the comparison. That is what makes it worth reporting:
+hold the state fixed and the two arms differ in whether it becomes a lockout.
+
+Its financial twin is `frozen-rdf-capital-ratio` (per clinic) and
+`mean-frozen-capital-ratio` (observer/monitor): the share of a clinic's takings
+that are physically collected but unspendable until the sale is digitally
+validated (paper §2.2.4). One freezes the stock signal, the other freezes the
+money that would answer it — the same outage drives both.
+
 **Forecasting** (`record-demand-history`, `update-demand-forecast`): each
 static keeps a 14-day rolling history of everything *requested* from it
 (walk-in patients, diverted public patients, satellite restocking pulls).
@@ -207,16 +243,45 @@ waiting rooms even when their stock data lags.
 
 **Reorder decisions** (`process-ngo-reorders`, `reorder-triggered?`):
 
-- *Baseline rule:* order when the **ledger's** C2 (or C3) figure falls to the
-  safety stock. Order size = capacity minus the **ledger** figure. Both read
-  the corrupted belief; if paper errors overstate stock, orders fire late and
-  small — exactly the pathology your paper describes.
-- *Predictive rule* (`predictive-modeling?` On): the trigger subtracts
-  `forecast × projection-horizon` before comparing to safety stock, where the
-  horizon = procurement lead time + known data staleness. Orders fire
-  *earlier*, compensating for delay — but quantities still come from the
-  lagged ledger. **Predictive modeling fixes timing, not data accuracy** —
-  preserved exactly as specified, and verification check 2 lets you see it.
+- *Baseline rule* (`predictive-modeling?` Off): order when the **ledger's** C2
+  (or C3) figure falls to the safety stock. Order size follows the MSH
+  maximum-stock formula — `(AMC × review period) + safety stock − ledger`.
+  Both halves read the corrupted belief at face value; if paper errors
+  overstate stock, orders fire late *and* small — exactly the pathology your
+  paper describes.
+- *Predictive rule* (`predictive-modeling?` On): the clinic gets no better
+  data, but it knows its own reporting delay and applies that knowledge to
+  **both halves of the decision**:
+  - *Timing* — the trigger subtracts `forecast × projection-horizon` before
+    comparing to safety stock, where the horizon = procurement lead time +
+    known data staleness. Orders fire earlier.
+  - *Quantity* — the ledger is discounted by the demand the forecast expects
+    across the staleness window before entering the formula:
+    `estimated stock = ledger − (forecast daily demand × staleness days)`,
+    floored at zero. The order becomes
+    `(AMC × review period) + safety stock − estimated stock`.
+
+  Both read one shared definition, `ledger-staleness-days` = (dispensation lag
+  + sync lag) × `environmental-latency-severity`, so they cannot drift apart as
+  the dials move.
+
+  **This is a change from the earlier build**, which corrected the timing and
+  left the quantity naive. That combination was internally inconsistent: the
+  clinic reasoned about the staleness window to decide *when* to order and then
+  ignored the same window when deciding *how much*, under-ordering by exactly
+  the consumption it had just accounted for. See changelog Part 8.
+
+  **Predictive modeling still does not fix data accuracy.** It corrects the
+  *known* delay only. It cannot see `paper-error-accum` — dispensing that went
+  unrecorded during an outage — because that error is invisible to the clinic
+  by construction. `mean-ledger-age-days` and `pct-time-on-paper` are
+  untouched by the toggle, and verification check 2 lets you see it. What the
+  arm separates is **latency the clinic can reason about from corruption it
+  cannot**.
+
+  At `environmental-latency-severity = 0` the staleness window is zero and the
+  two arms produce identical orders — the perfect-information control remains a
+  true control.
 - One order per class may be in flight at a time (`c2-order-outstanding?` /
   `c3-order-outstanding?`). The base build hatched a fresh full-size order
   *every day* the ledger sat below the trigger, silently multiplying

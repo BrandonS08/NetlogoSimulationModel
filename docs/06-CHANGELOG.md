@@ -522,3 +522,125 @@ must be **deleted** or the paste fails with *"There is already a global
 variable called GRID-FAILURE-RATE"*. Deleting five widgets, or starting from
 `File → New`, is a one-time step. After it, no code delivery ever again depends
 on Interface state.
+
+---
+
+## Part 8 — Predictive arm made internally consistent; phantom lockout measured
+
+Two changes. The first closes a contradiction inside the mitigation arm; the
+second adds a metric for the failure mode the model was built to expose but
+could not previously count.
+
+### [D6-1] The predictive arm corrected timing but not quantity
+
+**The inconsistency.** `reorder-triggered?` projected forecast demand across
+the pipeline horizon — lead time *plus* known ledger staleness — to decide
+**when** to order. `max-stock-order-quantity` then computed **how much** from
+the face-value ledger, ignoring the same staleness window the trigger had just
+finished reasoning about.
+
+So the predictive clinic fired at the right moment and then asked for the wrong
+amount, under-ordering by roughly (forecast daily demand × staleness days) —
+about 300 units of C2 at the default dial, 900 at severity 3. The arm was
+half-implemented, and the shortfall grew with exactly the dial the study
+varies, which would have suppressed the measured mitigation effect most where
+the effect is most interesting.
+
+**The fix.** When `predictive-modeling?` is on, the order rule now estimates
+true on-hand stock before applying the MSH formula:
+
+```
+Estimated Stock = Recorded Ledger - (Forecast Daily Demand x Staleness Days)   [floored at 0]
+Order Quantity  = (AMC x Review Period) + Safety Stock - Estimated Stock       [floored at 0,
+                                                                                capped by storage room]
+```
+
+When it is off, the formula is untouched: `(AMC × Review Period) + Safety Stock
+− Recorded Ledger`, exactly as before. The naive arm is bit-for-bit unchanged,
+so nothing already run against it is invalidated.
+
+**One definition, two consumers.** The staleness window is now the single
+reporter `ledger-staleness-days` = (dispensation-lag + sync-lag) ×
+`environmental-latency-severity`. Both `projection-horizon` (timing) and
+`max-stock-order-quantity` (quantity) read it, so the two halves cannot drift
+apart as the dials move — which is how they came apart in the first place. The
+stage-3 approval delay is deliberately **not** in this window: it is a
+procurement lead time, not a data-currency problem, so it belongs in the
+horizon and nowhere else.
+
+**What this does not change — and the claim to be careful about.** Predictive
+modeling still does not repair the data. It corrects the *known* delay only; it
+cannot see `paper-error-accum`, the unrecorded dispensing that accrues during an
+outage, because that error is invisible to the clinic by construction.
+`mean-ledger-age-days` and `pct-time-on-paper` remain untouched by the toggle,
+so verification check 2 still works and still tests a real claim.
+
+The wording in the write-up does need to change. "Predictive modeling fixes
+timing, not data accuracy" is now too narrow. The accurate framing is that the
+arm separates **latency the clinic can reason about from corruption it cannot**
+— it changes how a delayed ledger is *read*, not how good the ledger is. Docs
+02, 03, 05 and 07 have been updated to that framing.
+
+**Two honesty checks added to the docs.** At `environmental-latency-severity =
+0` the staleness discount is exactly zero, so the perfect-information control
+remains a true control and the arms must agree on the C2 decision end-to-end
+(check 2b — with the expected C3 exception documented there). And because
+forecast-driven ordering can overshoot, `waste-value-total` may *rise* in the
+predictive arm; docs 05 and 07 now instruct that this be reported rather than
+buried. A mitigation with a cost is a more credible result than a free win.
+
+### [D6-2] Phantom overstock lockout is now counted
+
+**What it is.** `accumulate-paper-error` gives recording error a positive bias
+by design: dispensing during an outage goes unrecorded, so the system believes
+more stock remains than truly does. Push that far enough and a line reaches
+
+> physical stock ≤ 0 **while** the recorded ledger reads **above** the reorder
+> trigger.
+
+Under the naive arm the reorder rule reads that ledger, sees a comfortably
+stocked clinic, and declines to order. The stockout is not merely unnoticed —
+it is **actively prolonged by the information system**. Stock cannot arrive
+because the system does not believe it is needed.
+
+This is the model's sharpest illustration of the thesis and the one failure
+mode that cannot be explained away as ordinary supply shortage: supply is
+willing, capital is available, and the order is simply never placed. The
+mechanism was already in the model. It had no name and no counter.
+
+**What was added.**
+
+| Addition | Kind | Role |
+|---|---|---|
+| `phantom-locked?` | `ngo-statics-own`, list of 3 booleans | Per-line state, refreshed each tick |
+| `phantom-lockout-days-cum` | global | Cumulative static commodity-line-days in the state |
+| `check-phantom-lockout [ c-idx ]` | turtle reporter | The condition itself |
+| `phantom-lockout-line-days` | reporter | The cumulative count, for monitors and BehaviorSpace |
+| `pct-stockouts-phantom-caused` | reporter | Share of static zero-stock line-days that were phantom |
+| `frozen-rdf-capital-ratio` | turtle reporter | Financial twin: takings collected but unspendable |
+| `mean-frozen-capital-ratio` | reporter | Observer-context wrapper, so it can go on a monitor |
+
+**Where it is measured, and why there.** In `update-running-metrics`, which the
+`go` loop runs *after* `process-ngo-reorders` and *before*
+`run-replenishment-cycles`. So a counted line is one whose reorder decision was
+genuinely taken against today's ledger, and it shares a denominator basis with
+`static-stockout-line-days` computed in the same pass — which matters, because
+`pct-stockouts-phantom-caused` is the ratio of the two.
+
+**How to read it — a caveat that belongs in the write-up.** The metric records
+a *state*, not a per-arm outcome: empty shelf plus above-trigger ledger. The
+same state can occur under `predictive-modeling?` and **not** block the order,
+because the trigger discounts the ledger by forecast demand before the
+comparison. That is precisely what makes it worth reporting: hold the state
+fixed, and the two arms differ in whether it becomes a lockout. Do not describe
+it as "reorders blocked" without naming the arm.
+
+`pct-stockouts-phantom-caused` is the cleanest single number for the argument
+that the failure is informational rather than logistical: nothing about supply
+or money changed between the arms, only what the system believed.
+
+### [D6-3] Incidental fix
+
+The docstring for `mean-ledger-age-days` had drifted above
+`effective-bureaucratic-lag` in an earlier edit, so each reporter carried the
+other's explanation. Comments only; no behavior change.
