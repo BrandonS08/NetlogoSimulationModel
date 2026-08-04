@@ -8,25 +8,11 @@
 ;; error-corrupted RECORDED-STOCK-LEDGER, never the true STOCK-ON-HAND.
 ;; The gap between the two is the object of study.
 ;;
-;; IMPORTANT — INTERFACE DEPENDENCY: five globals are defined by Interface
-;; widgets, NOT in this file:  grid-failure-rate (slider),
-;; environmental-latency-severity (slider), bureaucratic-latency-severity
+;; IMPORTANT — INTERFACE DEPENDENCY: four globals are defined by Interface
+;; widgets, NOT in this file:  grid-failure-rate (slider), info-latency-severity
 ;; (slider), predictive-modeling? (switch), demand-shocks? (switch).
-;; Create those five widgets BEFORE pasting this code, or the compiler will
+;; Create those four widgets BEFORE pasting this code, or the compiler will
 ;; report "Nothing named GRID-FAILURE-RATE". See docs/02-INTERFACE-SETUP.md.
-;;
-;; THE TWO LATENCY DIALS ARE DELIBERATELY SEPARATE (paper 2.2.4).
-;;   environmental-latency-severity — scales stages 1 and 2 of the paper's
-;;     three-stage framework: point-of-dispensation lag, local device
-;;     synchronization lag, and the manual-record error rate. These are
-;;     ENVIRONMENTAL/TECHNICAL in origin: grid failure, bandwidth throttling,
-;;     gaps in frontline digitization.
-;;   bureaucratic-latency-severity — scales stage 3 only: central processing
-;;     lag, which the paper describes as "primarily caused by human rather
-;;     than environmental lag" — the time regional administrators take to
-;;     evaluate synced logs and issue purchase orders.
-;; Keeping them on separate dials is what lets you ask which lever matters
-;; more: fixing connectivity, or fixing approval bureaucracy.
 ;;
 ;; STYLE NOTE: every list extraction or reporter call that sits next to an
 ;; arithmetic operator is wrapped in explicit parentheses, so no expression in
@@ -74,14 +60,10 @@ ngo-statics-own [
   dispensed-today         ;; list of 3: units actually issued today
   paper-error-accum       ;; list of 3: recording error built up while on paper fallback
 
-  ;; --- three-stage latency (paper 2.2.4: dispensation, sync, processing).
-  ;;     Stages 1-2 are environmental; stage 3 is bureaucratic. ---
+  ;; --- three-stage latency (paper framework: dispensation, sync, processing) ---
   dispensation-lag        ;; days between physical consumption and digital entry
   sync-lag                ;; additional days from routine batching of uploads
-  central-processing-lag  ;; stage 3: bureaucratic approval days after a reorder
-                          ;; triggers. Scaled at point of use by
-                          ;; bureaucratic-latency-severity, NOT by the
-                          ;; environmental dial — see the header note.
+  central-processing-lag  ;; bureaucratic approval days after a reorder triggers
 
   pending-ledger-updates  ;; queue of (due-tick , stock-snapshot) awaiting sync
 
@@ -132,9 +114,8 @@ requisitions-own [
 ]
 
 globals [
-  ;; NOTE: grid-failure-rate, environmental-latency-severity,
-  ;; bureaucratic-latency-severity, predictive-modeling? and demand-shocks?
-  ;; are Interface widgets and intentionally NOT listed here.
+  ;; NOTE: grid-failure-rate, info-latency-severity, predictive-modeling?,
+  ;; demand-shocks? are Interface widgets and intentionally NOT listed here.
 
   ;; ---- economics (BDT) ----
   class2-unit-cost class2-retail-price
@@ -1002,7 +983,7 @@ end
 to update-ledger-visibility
   ask ngo-statics [
     if is-connected? and (not manual-fallback?) [
-      let total-lag ((dispensation-lag + sync-lag) * environmental-latency-severity)
+      let total-lag ((dispensation-lag + sync-lag) * info-latency-severity)
       ;; each queued entry is (due-tick , stock-snapshot , tick-the-snapshot-was-taken)
       set pending-ledger-updates lput (list (ticks + total-lag) stock-on-hand ticks) pending-ledger-updates
       let ready filter [ u -> (item 0 u) <= ticks ] pending-ledger-updates
@@ -1045,7 +1026,7 @@ to accumulate-paper-error   ;; runs as an ngo-static
   ;; missed paper entries scale with the volume actually dispensed that day;
   ;; the bias is positive: unrecorded dispensing makes the system believe MORE
   ;; stock remains than truly does
-  set paper-error-accum (map [ [ err disp ] -> err + (disp * reporting-error-rate * environmental-latency-severity) ]
+  set paper-error-accum (map [ [ err disp ] -> err + (disp * reporting-error-rate * info-latency-severity) ]
                              paper-error-accum dispensed-today)
 end
 
@@ -1157,10 +1138,7 @@ to process-ngo-reorders
         let affordable floor (rdf-capital / class2-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
-          ;; the REAL approval delay, not just the clinic's internal estimate
-          place-requisition 1 qty class2-unit-cost
-                            (central-processing-lag * bureaucratic-latency-severity)
-                            "ngo-warehouse"
+          place-requisition 1 qty class2-unit-cost central-processing-lag "ngo-warehouse"
           set c2-order-outstanding? true
         ]
       ]
@@ -1196,13 +1174,8 @@ end
 to-report projection-horizon [ c-idx ]   ;; runs as an ngo-static
   ;; the clinic knows its own institutional delays and projects demand across
   ;; them: procurement lead time + how stale it knows its data to be
-  ;; stage 1 + 2 staleness is environmental; the C2 lead time is the stage-3
-  ;; bureaucratic approval delay. C3 uses local-procurement-lag unscaled — that
-  ;; is a commercial delivery time, not part of the information-latency framework.
-  let staleness ((dispensation-lag + sync-lag) * environmental-latency-severity)
-  let lead ifelse-value (c-idx = 1)
-             [ (central-processing-lag * bureaucratic-latency-severity) ]
-             [ local-procurement-lag ]
+  let staleness ((dispensation-lag + sync-lag) * info-latency-severity)
+  let lead ifelse-value (c-idx = 1) [ central-processing-lag ] [ local-procurement-lag ]
   report (lead + staleness)
 end
 
@@ -1468,21 +1441,10 @@ end
 ;; ---- information-layer monitors ----
 
 ;; THE clean test of information quality.  How many days out of date is the
-;; ledger?  This depends only on connectivity draws and the ENVIRONMENTAL
-;; severity dial (the bureaucratic dial affects order timing, not data currency) —
+;; ledger?  This depends only on connectivity draws and info-latency-severity —
 ;; never on stock levels, order timing or the predictive toggle.  Use this,
 ;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
 ;; untouched while improving reorder TIMING.  (docs/05 check 2)
-;; Stage-3 approval delay actually in force, in days. Exposed as a monitor so
-;; the bureaucratic dial's effect is visible during a run. Written as a reporter
-;; because central-processing-lag is an ngo-statics-own variable and a monitor
-;; evaluates in observer context, where a bare reference to it is a runtime error.
-to-report effective-bureaucratic-lag
-  ifelse any? ngo-statics
-    [ report ((mean [ central-processing-lag ] of ngo-statics) * bureaucratic-latency-severity) ]
-    [ report 0 ]
-end
-
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
 end
