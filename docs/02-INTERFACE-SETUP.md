@@ -223,7 +223,27 @@ after a push, decaying to near 0% before the next one — averaging ~43%.*
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| "Nothing named X has been defined" on Check | A Phase A widget is missing or misspelled | Compare widget names letter-for-letter, including `?` and hyphens |
+| **"Nothing named ENVIRONMENTAL-LATENCY-SEVERITY has been defined"** (or GRID-FAILURE-RATE, BUREAUCRATIC-LATENCY-SEVERITY, PREDICTIVE-MODELING?, DEMAND-SHOCKS?) | **You pasted an old copy of the code.** Those five names used to be Interface sliders. A build from before that changed references them without declaring them, so once you delete the sliders every line that mentions one errors. | Re-copy the **whole** file from `model/CodeTab.txt` and paste again — see the one-minute check below. **Do not add the sliders back**; that re-creates the coupling this build removed. |
+| "There is already a global variable called ..." | The opposite mismatch: current code, but an old slider still on the Interface | Delete the widget (`00-START-HERE.md` Step 0a) |
+| "Nothing named X has been defined" for any other X | A monitor or plot pen has a typo | Re-copy the reporter name from the tables above |
 | A monitor shows nothing / an error | Typo in its Reporter field | Re-copy the reporter name from the table above |
-| Everything compiles but `setup` errors | Code was pasted incompletely | Re-paste the entire block from `01-PASTE-THIS-CODE.md` |
+| Everything compiles but `setup` errors | Code was pasted incompletely | Re-copy the whole of `model/CodeTab.txt` |
 | Plots stay empty | Pen update command missing/typo | Edit the pen, re-copy the `plot ...` command |
+
+### The one-minute "which version do I have?" check
+
+Before debugging anything else, confirm what is actually in your Code tab.
+Press **Ctrl+F** in the Code tab and search for:
+
+```
+PHANTOM-LOCKOUT-DAYS-CUM
+```
+
+- **Found** → you have the current build. Compile errors are a real problem;
+  read the message.
+- **Not found** → you are running an **older copy**. Nothing is wrong with your
+  NetLogo or your Interface — re-copy the entire `model/CodeTab.txt` and paste
+  it over the whole tab (Ctrl+A first, so nothing old survives).
+
+The top of the file carries a **BUILD STAMP** with the same instruction, so you
+can always tell at a glance which copy you pasted.

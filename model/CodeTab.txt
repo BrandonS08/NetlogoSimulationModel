@@ -1,6 +1,23 @@
 ;; ============================================================================
 ;; BANGLADESH HEALTH CLINIC INFORMATION LATENCY MODEL — HARDENED BUILD v2
 ;; ============================================================================
+;; BUILD STAMP — read this first if the Code tab shows errors.
+;;
+;;   Paste version: 2026-08-04-c  (predictive order-quantity reconciliation +
+;;                                 phantom overstock lockout metrics)
+;;
+;;   HOW TO CONFIRM YOU PASTED THIS VERSION: press Ctrl+F in the Code tab and
+;;   search for   PHANTOM-LOCKOUT-DAYS-CUM
+;;     - found     -> you have this build; errors are NOT a stale-paste problem
+;;     - not found -> you are running an OLDER copy. Re-copy the whole file from
+;;                    model/CodeTab.txt on branch
+;;                    claude/netlogo-model-hardening-1bwbh4 and paste again.
+;;
+;;   The error "Nothing named ENVIRONMENTAL-LATENCY-SEVERITY has been defined"
+;;   means exactly one thing: the pasted code is older than the build that made
+;;   the five research parameters ordinary globals. It is never fixed by adding
+;;   a slider back — it is fixed by pasting a current copy.
+;; ============================================================================
 ;; Agent-based model of information latency in decentralized NGO health-clinic
 ;; procurement networks in Bangladesh (NetLogo 7.0.4).
 ;;
@@ -8,11 +25,34 @@
 ;; error-corrupted RECORDED-STOCK-LEDGER, never the true STOCK-ON-HAND.
 ;; The gap between the two is the object of study.
 ;;
-;; IMPORTANT — INTERFACE DEPENDENCY: four globals are defined by Interface
-;; widgets, NOT in this file:  grid-failure-rate (slider), info-latency-severity
-;; (slider), predictive-modeling? (switch), demand-shocks? (switch).
-;; Create those four widgets BEFORE pasting this code, or the compiler will
-;; report "Nothing named GRID-FAILURE-RATE". See docs/02-INTERFACE-SETUP.md.
+;; NO INTERFACE WIDGETS ARE REQUIRED. This file compiles on its own, in an
+;; empty NetLogo model, with nothing built on the Interface tab. The five
+;; research parameters are ordinary globals declared below and given their
+;; defaults by SETUP, so a paste can never fail with "Nothing named ... has
+;; been defined". Add buttons when you want to click things; add monitors and
+;; plots when you want to watch things. Neither is needed to compile or run.
+;;
+;; TO CHANGE A RESEARCH PARAMETER you have three options, all equivalent:
+;;   1. Click one of the SCENARIO- procedures below (easiest — one click sets
+;;      a whole named condition, e.g. scenario-perfect-info).
+;;   2. Type it into the Command Center, e.g.
+;;        set environmental-latency-severity 3
+;;   3. Edit the defaults in SET-RESEARCH-DEFAULTS.
+;; BehaviorSpace varies them directly; it must use SETUP-EXPERIMENT as its
+;; setup command (see docs/07) so its assignments are not overwritten.
+;;
+;; THE TWO LATENCY DIALS ARE DELIBERATELY SEPARATE (paper 2.2.4).
+;;   environmental-latency-severity — scales stages 1 and 2 of the paper's
+;;     three-stage framework: point-of-dispensation lag, local device
+;;     synchronization lag, and the manual-record error rate. These are
+;;     ENVIRONMENTAL/TECHNICAL in origin: grid failure, bandwidth throttling,
+;;     gaps in frontline digitization.
+;;   bureaucratic-latency-severity — scales stage 3 only: central processing
+;;     lag, which the paper describes as "primarily caused by human rather
+;;     than environmental lag" — the time regional administrators take to
+;;     evaluate synced logs and issue purchase orders.
+;; Keeping them on separate dials is what lets you ask which lever matters
+;; more: fixing connectivity, or fixing approval bureaucracy.
 ;;
 ;; STYLE NOTE: every list extraction or reporter call that sits next to an
 ;; arithmetic operator is wrapped in explicit parentheses, so no expression in
@@ -60,10 +100,14 @@ ngo-statics-own [
   dispensed-today         ;; list of 3: units actually issued today
   paper-error-accum       ;; list of 3: recording error built up while on paper fallback
 
-  ;; --- three-stage latency (paper framework: dispensation, sync, processing) ---
+  ;; --- three-stage latency (paper 2.2.4: dispensation, sync, processing).
+  ;;     Stages 1-2 are environmental; stage 3 is bureaucratic. ---
   dispensation-lag        ;; days between physical consumption and digital entry
   sync-lag                ;; additional days from routine batching of uploads
-  central-processing-lag  ;; bureaucratic approval days after a reorder triggers
+  central-processing-lag  ;; stage 3: bureaucratic approval days after a reorder
+                          ;; triggers. Scaled at point of use by
+                          ;; bureaucratic-latency-severity, NOT by the
+                          ;; environmental dial — see the header note.
 
   pending-ledger-updates  ;; queue of (due-tick , stock-snapshot) awaiting sync
 
@@ -118,8 +162,16 @@ requisitions-own [
 ]
 
 globals [
-  ;; NOTE: grid-failure-rate, info-latency-severity, predictive-modeling?,
-  ;; demand-shocks? are Interface widgets and intentionally NOT listed here.
+  ;; ---- the five research parameters ----
+  ;; Ordinary globals, NOT Interface widgets. SETUP gives them the defaults in
+  ;; SET-RESEARCH-DEFAULTS; SETUP-EXPERIMENT preserves whatever BehaviorSpace
+  ;; assigned. If you ever add sliders with these names, DELETE the lines below
+  ;; first — NetLogo will not allow a widget and a global to share a name.
+  grid-failure-rate               ;; daily probability an NGO static loses connectivity
+  environmental-latency-severity  ;; scales latency stages 1-2 + manual error rate
+  bureaucratic-latency-severity   ;; scales latency stage 3 (central approval)
+  predictive-modeling?            ;; forecast-based reorder timing on/off
+  demand-shocks?                  ;; monsoon/flood shock system on/off
 
   ;; ---- economics (BDT) ----
   class2-unit-cost class2-retail-price
@@ -145,6 +197,8 @@ globals [
   fallback-recovery-lag local-procurement-lag reporting-error-rate
   forecast-window-days demand-history-days
   review-period-months            ;; MSH Box 46-1 maximum-stock formula input
+  outage-buffer-inflation         ;; control-arm safety-stock multiplier while
+                                  ;; information is degraded (see EFFECTIVE-SAFETY-STOCK)
 
   ;; ---- loss rates ----
   c1-monthly-spoilage-rate c2-monthly-spoilage-rate c2-monthly-shrinkage-rate
@@ -407,6 +461,16 @@ to setup-parameters
   set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
                                      ;; formula; monthly matches "localized monthly consumption
                                      ;; data" and the pharmacist's "weekly/monthly" reporting duty
+  set outage-buffer-inflation 1.20   ;; [ASSUMPTION] +20% safety stock for the NON-predictive
+                                     ;; control arm while information is degraded. This is the
+                                     ;; textbook inventory response to lead-time/demand
+                                     ;; uncertainty — hold more buffer — and it is what a
+                                     ;; competent storekeeper does WITHOUT any forecasting
+                                     ;; capability. It exists so the predictive arm is compared
+                                     ;; against a rational operator, not a blind one. No source
+                                     ;; gives a figure for this specific setting, so treat 1.20
+                                     ;; as a stated assumption and sensitivity-test it
+                                     ;; (1.0 = no heuristic, 1.5 = an aggressive one).
 
   ;; ---- loss rates (monthly fractions) ----
   set c1-monthly-spoilage-rate  0.05   ;; [SPEC]
@@ -1081,7 +1145,7 @@ end
 to update-ledger-visibility
   ask ngo-statics [
     if is-connected? and (not manual-fallback?) [
-      let total-lag ((dispensation-lag + sync-lag) * info-latency-severity)
+      let total-lag ((dispensation-lag + sync-lag) * environmental-latency-severity)
       ;; each queued entry is (due-tick , stock-snapshot , tick-the-snapshot-was-taken)
       set pending-ledger-updates lput (list (ticks + total-lag) stock-on-hand ticks) pending-ledger-updates
       let ready filter [ u -> (item 0 u) <= ticks ] pending-ledger-updates
@@ -1124,7 +1188,7 @@ to accumulate-paper-error   ;; runs as an ngo-static
   ;; missed paper entries scale with the volume actually dispensed that day;
   ;; the bias is positive: unrecorded dispensing makes the system believe MORE
   ;; stock remains than truly does
-  set paper-error-accum (map [ [ err disp ] -> err + (disp * reporting-error-rate * info-latency-severity) ]
+  set paper-error-accum (map [ [ err disp ] -> err + (disp * reporting-error-rate * environmental-latency-severity) ]
                              paper-error-accum dispensed-today)
 end
 
@@ -1214,18 +1278,27 @@ end
 ;; entire research design: the formula is correct, the number fed into it is
 ;; stale, and the resulting order is wrong by the size of the information gap.
 ;;
-;; WHAT THE TWO ARMS DIFFER ON is how the clinic reads its own ledger:
+;; WHAT THE TWO ARMS DIFFER ON is the STRATEGY each uses against the same bad
+;; data.  Both are real operational strategies; neither is a strawman.
 ;;
-;;   predictive-modeling? = FALSE  — the naive arm.  Stock On Hand := the
-;;     recorded ledger, taken at face value.  The clinic behaves as if a
-;;     snapshot from LEDGER-STALENESS-DAYS ago were current, so it silently
-;;     under-orders by roughly the consumption that occurred in between.
+;;   predictive-modeling? = FALSE  — the CONTROL arm: a competent operator with
+;;     no analytics.  Stock On Hand := the recorded ledger at face value, because
+;;     it has no means of date-correcting it.  What it DOES have is the standard
+;;     textbook response to degraded information — carry more buffer — applied
+;;     through EFFECTIVE-SAFETY-STOCK, which inflates both its reorder threshold
+;;     and its order-up-to target by OUTAGE-BUFFER-INFLATION while the link is
+;;     down or the clinic is on paper.
 ;;
-;;   predictive-modeling? = TRUE   — the mitigation arm.  The clinic still has
-;;     no better data, but it KNOWS its own reporting delay and discounts the
-;;     ledger by the demand its forecast expects across that window:
+;;   predictive-modeling? = TRUE   — the MITIGATION arm: the same bad data, but
+;;     handled quantitatively.  The clinic KNOWS its own reporting delay and
+;;     discounts the ledger by the demand its forecast expects across it:
 ;;         Estimated Stock = Recorded Ledger - (Forecast Daily Demand x Staleness)
-;;     floored at zero, because a clinic never plans on negative shelves.
+;;     floored at zero, because a clinic never plans on negative shelves.  It
+;;     does NOT also receive the buffer inflation — that would double-count the
+;;     same uncertainty it is already pricing in.
+;;
+;; That pairing is what makes the measured effect defensible: it is forecasting
+;; versus a rational manual heuristic, not forecasting versus doing nothing.
 ;;
 ;; PREDICTIVE MODE RECONCILES BOTH HALVES OF THE REORDER DECISION — timing and
 ;; quantity — and that is the point of this revision.  REORDER-TRIGGERED?
@@ -1251,12 +1324,23 @@ end
 to-report max-stock-order-quantity [ c-idx ]
   let amc (average-monthly-consumption c-idx)
   let believed (item c-idx recorded-stock-ledger)
+
+  ;; Each arm's estimate of what is actually on the shelf.
+  ;;   control    — the ledger at face value; it has no way to date-correct it,
+  ;;                and instead answers degraded information through the
+  ;;                inflated buffer in EFFECTIVE-SAFETY-STOCK below.
+  ;;   predictive — the ledger discounted by forecast demand across the window
+  ;;                it knows the ledger to be blind to. Floored at zero: a
+  ;;                clinic never plans against negative shelves.
   let on-hand-estimate believed
   if predictive-modeling? [
     let fc (item c-idx forecast-daily-demand)
     set on-hand-estimate max (list 0 (believed - (fc * ledger-staleness-days)))
   ]
-  let raw ((amc * review-period-months) + (item c-idx safety-stock) - on-hand-estimate)
+
+  ;; Same EFFECTIVE-SAFETY-STOCK the trigger used, so the decision to order and
+  ;; the size of that order are always taken against one buffer definition.
+  let raw ((amc * review-period-months) + (effective-safety-stock c-idx) - on-hand-estimate)
   let storage-room ((item c-idx max-stock-capacity) - on-hand-estimate)
   report max (list 0 (round (min (list raw storage-room))))
 end
@@ -1281,7 +1365,10 @@ to process-ngo-reorders
         let affordable floor (rdf-capital / class2-unit-cost)
         let qty min (list desired affordable)
         if qty > 0 [
-          place-requisition 1 qty class2-unit-cost central-processing-lag "ngo-warehouse"
+          ;; the REAL approval delay, not just the clinic's internal estimate
+          place-requisition 1 qty class2-unit-cost
+                            (central-processing-lag * bureaucratic-latency-severity)
+                            "ngo-warehouse"
           set c2-order-outstanding? true
         ]
       ]
@@ -1305,9 +1392,52 @@ to process-ngo-reorders
   ]
 end
 
+;; Is the clinic currently operating on degraded information?  True while the
+;; link is down and through the sticky paper-fallback period that follows, which
+;; is exactly the window in which the ledger stops tracking the shelf.  Read
+;; after PROCESS-MANUAL-PAPER-FALLBACK in the GO loop, so it reflects today.
+to-report information-degraded?   ;; runs as an ngo-static
+  report (manual-fallback? or (not is-connected?))
+end
+
+;; THE CONTROL ARM'S HEURISTIC — and the reason the comparison in this study is
+;; fair.
+;;
+;; A clinic with no forecasting capability is not thereby stupid. When its
+;; information system goes down, the standard operational response — the one in
+;; every inventory textbook, requiring no analytics whatsoever — is to HOLD MORE
+;; BUFFER, because effective lead-time and demand uncertainty have just risen.
+;; The control arm does that: while information is degraded it inflates its
+;; reorder threshold and its order-up-to target by OUTAGE-BUFFER-INFLATION.
+;;
+;; Without this, the non-predictive arm read a frozen ledger at face value and
+;; had NO response of any kind to a known outage. Measuring forecasting against
+;; that is measuring it against a strawman, and the effect size it produces is
+;; not defensible — a reviewer would say the baseline was rigged. With it, the
+;; contrast is between two REAL strategies for the same problem:
+;;
+;;   control    — crude, non-quantitative: "data is bad, so carry more stock"
+;;   predictive — quantitative: "data is N days stale, so subtract N days of
+;;                forecast demand from what the ledger claims"
+;;
+;; The predictive arm does NOT also get the buffer. It addresses the same
+;; uncertainty analytically; stacking both would double-count it.
+;;
+;; Scope note: the inflation is OUTAGE-CONDITIONAL, not permanent. In normal
+;; connected operation the ledger is stale by a fixed, known ~3 days, and the
+;; base safety stock (7.1 days of cover) already absorbs that by design. The
+;; heuristic is for the abnormal condition, which is the condition the control
+;; arm previously ignored entirely.
+to-report effective-safety-stock [ c-idx ]   ;; runs as an ngo-static
+  let base (item c-idx safety-stock)
+  ifelse (not predictive-modeling?) and information-degraded?
+    [ report (base * outage-buffer-inflation) ]
+    [ report base ]
+end
+
 to-report reorder-triggered? [ c-idx ]   ;; runs as an ngo-static
   let believed (item c-idx recorded-stock-ledger)
-  let trigger-level (item c-idx safety-stock)
+  let trigger-level (effective-safety-stock c-idx)
   ifelse predictive-modeling?
     [ let fc (item c-idx forecast-daily-demand)
       report (believed - (fc * (projection-horizon c-idx))) <= trigger-level ]
@@ -1329,8 +1459,13 @@ end
 to-report projection-horizon [ c-idx ]   ;; runs as an ngo-static
   ;; the clinic knows its own institutional delays and projects demand across
   ;; them: procurement lead time + how stale it knows its data to be
-  let staleness ((dispensation-lag + sync-lag) * info-latency-severity)
-  let lead ifelse-value (c-idx = 1) [ central-processing-lag ] [ local-procurement-lag ]
+  ;; stage 1 + 2 staleness is environmental; the C2 lead time is the stage-3
+  ;; bureaucratic approval delay. C3 uses local-procurement-lag unscaled — that
+  ;; is a commercial delivery time, not part of the information-latency framework.
+  let staleness ledger-staleness-days
+  let lead ifelse-value (c-idx = 1)
+             [ (central-processing-lag * bureaucratic-latency-severity) ]
+             [ local-procurement-lag ]
   report (lead + staleness)
 end
 
@@ -1662,11 +1797,22 @@ end
 
 ;; ---- information-layer monitors ----
 
+;; Stage-3 approval delay actually in force, in days. Exposed as a monitor so
+;; the bureaucratic dial's effect is visible during a run. Written as a reporter
+;; because central-processing-lag is an ngo-statics-own variable and a monitor
+;; evaluates in observer context, where a bare reference to it is a runtime error.
+to-report effective-bureaucratic-lag
+  ifelse any? ngo-statics
+    [ report ((mean [ central-processing-lag ] of ngo-statics) * bureaucratic-latency-severity) ]
+    [ report 0 ]
+end
+
 ;; THE clean test of information quality.  How many days out of date is the
-;; ledger?  This depends only on connectivity draws and info-latency-severity —
+;; ledger?  This depends only on connectivity draws and the ENVIRONMENTAL
+;; severity dial (the bureaucratic dial affects order timing, not data currency) —
 ;; never on stock levels, order timing or the predictive toggle.  Use this,
 ;; not the gap below, to show that predictive modeling leaves DATA ACCURACY
-;; untouched while improving reorder TIMING.  (docs/05 check 2)
+;; untouched while changing only how the clinic READS that data.  (docs/05 check 2)
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
 end
