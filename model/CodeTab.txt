@@ -242,6 +242,11 @@ globals [
   paper-days-cum                           ;; clinic-days spent on paper fallback
   phantom-lockout-days-cum                 ;; static commodity-line-days spent in
                                            ;; phantom overstock lockout
+  ;; Running sums for the three information/finance metrics whose plain
+  ;; reporters are FINAL-DAY SNAPSHOTS. Dividing these by ticks gives a
+  ;; whole-run average, which is what BehaviorSpace should record — a single
+  ;; day's reading swings on whether that day happened to fall in an outage.
+  ledger-age-cum ledger-gap-c2-cum unverified-revenue-cum
 ]
 
 ;; ============================================================================
@@ -569,6 +574,9 @@ to setup-parameters
   set facility-days 0
   set paper-days-cum 0
   set phantom-lockout-days-cum 0
+  set ledger-age-cum 0
+  set ledger-gap-c2-cum 0
+  set unverified-revenue-cum 0
 end
 
 to setup-geography
@@ -1646,6 +1654,11 @@ to update-running-metrics
   ]
   set phantom-lockout-days-cum (phantom-lockout-days-cum
       + (sum [ length filter [ b -> b ] phantom-locked? ] of ngo-statics))
+
+  ;; Accumulate the three snapshot metrics so a whole-run average is available.
+  set ledger-age-cum          (ledger-age-cum + mean-ledger-age-days)
+  set ledger-gap-c2-cum       (ledger-gap-c2-cum + mean-ledger-gap-c2)
+  set unverified-revenue-cum  (unverified-revenue-cum + mean-unverified-revenue)
 end
 
 ;; ============================================================================
@@ -1815,6 +1828,27 @@ end
 ;; untouched while changing only how the clinic READS that data.  (docs/05 check 2)
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
+end
+
+;; ---- whole-run averages of the three snapshot metrics ----
+;;
+;; USE THESE IN BEHAVIORSPACE, not the snapshot versions above and below.
+;; MEAN-LEDGER-AGE-DAYS answers "how stale is the ledger RIGHT NOW", which is
+;; the right thing for a live monitor and the wrong thing for an end-of-run
+;; measurement: day 3,650 either did or did not land inside an outage, and that
+;; coin flip is most of the between-run variance. These average every simulated
+;; day of the run instead, so they measure the information regime rather than
+;; one arbitrary Tuesday.
+to-report avg-ledger-age-days
+  report ledger-age-cum / (max (list 1 ticks))
+end
+
+to-report avg-ledger-gap-c2
+  report ledger-gap-c2-cum / (max (list 1 ticks))
+end
+
+to-report avg-unverified-revenue
+  report unverified-revenue-cum / (max (list 1 ticks))
 end
 
 ;; Units of disagreement between belief and reality.  IMPORTANT CAVEAT: this
