@@ -197,6 +197,8 @@ globals [
   fallback-recovery-lag local-procurement-lag reporting-error-rate
   forecast-window-days demand-history-days
   review-period-months            ;; MSH Box 46-1 maximum-stock formula input
+  outage-buffer-inflation         ;; control-arm safety-stock multiplier while
+                                  ;; information is degraded (see EFFECTIVE-SAFETY-STOCK)
 
   ;; ---- loss rates ----
   c1-monthly-spoilage-rate c2-monthly-spoilage-rate c2-monthly-shrinkage-rate
@@ -459,6 +461,16 @@ to setup-parameters
   set review-period-months    1      ;; [PAPER 2.2.3.1] review period in the MSH maximum-stock
                                      ;; formula; monthly matches "localized monthly consumption
                                      ;; data" and the pharmacist's "weekly/monthly" reporting duty
+  set outage-buffer-inflation 1.20   ;; [ASSUMPTION] +20% safety stock for the NON-predictive
+                                     ;; control arm while information is degraded. This is the
+                                     ;; textbook inventory response to lead-time/demand
+                                     ;; uncertainty — hold more buffer — and it is what a
+                                     ;; competent storekeeper does WITHOUT any forecasting
+                                     ;; capability. It exists so the predictive arm is compared
+                                     ;; against a rational operator, not a blind one. No source
+                                     ;; gives a figure for this specific setting, so treat 1.20
+                                     ;; as a stated assumption and sensitivity-test it
+                                     ;; (1.0 = no heuristic, 1.5 = an aggressive one).
 
   ;; ---- loss rates (monthly fractions) ----
   set c1-monthly-spoilage-rate  0.05   ;; [SPEC]
@@ -1266,18 +1278,27 @@ end
 ;; entire research design: the formula is correct, the number fed into it is
 ;; stale, and the resulting order is wrong by the size of the information gap.
 ;;
-;; WHAT THE TWO ARMS DIFFER ON is how the clinic reads its own ledger:
+;; WHAT THE TWO ARMS DIFFER ON is the STRATEGY each uses against the same bad
+;; data.  Both are real operational strategies; neither is a strawman.
 ;;
-;;   predictive-modeling? = FALSE  — the naive arm.  Stock On Hand := the
-;;     recorded ledger, taken at face value.  The clinic behaves as if a
-;;     snapshot from LEDGER-STALENESS-DAYS ago were current, so it silently
-;;     under-orders by roughly the consumption that occurred in between.
+;;   predictive-modeling? = FALSE  — the CONTROL arm: a competent operator with
+;;     no analytics.  Stock On Hand := the recorded ledger at face value, because
+;;     it has no means of date-correcting it.  What it DOES have is the standard
+;;     textbook response to degraded information — carry more buffer — applied
+;;     through EFFECTIVE-SAFETY-STOCK, which inflates both its reorder threshold
+;;     and its order-up-to target by OUTAGE-BUFFER-INFLATION while the link is
+;;     down or the clinic is on paper.
 ;;
-;;   predictive-modeling? = TRUE   — the mitigation arm.  The clinic still has
-;;     no better data, but it KNOWS its own reporting delay and discounts the
-;;     ledger by the demand its forecast expects across that window:
+;;   predictive-modeling? = TRUE   — the MITIGATION arm: the same bad data, but
+;;     handled quantitatively.  The clinic KNOWS its own reporting delay and
+;;     discounts the ledger by the demand its forecast expects across it:
 ;;         Estimated Stock = Recorded Ledger - (Forecast Daily Demand x Staleness)
-;;     floored at zero, because a clinic never plans on negative shelves.
+;;     floored at zero, because a clinic never plans on negative shelves.  It
+;;     does NOT also receive the buffer inflation — that would double-count the
+;;     same uncertainty it is already pricing in.
+;;
+;; That pairing is what makes the measured effect defensible: it is forecasting
+;; versus a rational manual heuristic, not forecasting versus doing nothing.
 ;;
 ;; PREDICTIVE MODE RECONCILES BOTH HALVES OF THE REORDER DECISION — timing and
 ;; quantity — and that is the point of this revision.  REORDER-TRIGGERED?
@@ -1303,12 +1324,23 @@ end
 to-report max-stock-order-quantity [ c-idx ]
   let amc (average-monthly-consumption c-idx)
   let believed (item c-idx recorded-stock-ledger)
+
+  ;; Each arm's estimate of what is actually on the shelf.
+  ;;   control    — the ledger at face value; it has no way to date-correct it,
+  ;;                and instead answers degraded information through the
+  ;;                inflated buffer in EFFECTIVE-SAFETY-STOCK below.
+  ;;   predictive — the ledger discounted by forecast demand across the window
+  ;;                it knows the ledger to be blind to. Floored at zero: a
+  ;;                clinic never plans against negative shelves.
   let on-hand-estimate believed
   if predictive-modeling? [
     let fc (item c-idx forecast-daily-demand)
     set on-hand-estimate max (list 0 (believed - (fc * ledger-staleness-days)))
   ]
-  let raw ((amc * review-period-months) + (item c-idx safety-stock) - on-hand-estimate)
+
+  ;; Same EFFECTIVE-SAFETY-STOCK the trigger used, so the decision to order and
+  ;; the size of that order are always taken against one buffer definition.
+  let raw ((amc * review-period-months) + (effective-safety-stock c-idx) - on-hand-estimate)
   let storage-room ((item c-idx max-stock-capacity) - on-hand-estimate)
   report max (list 0 (round (min (list raw storage-room))))
 end
@@ -1360,9 +1392,52 @@ to process-ngo-reorders
   ]
 end
 
+;; Is the clinic currently operating on degraded information?  True while the
+;; link is down and through the sticky paper-fallback period that follows, which
+;; is exactly the window in which the ledger stops tracking the shelf.  Read
+;; after PROCESS-MANUAL-PAPER-FALLBACK in the GO loop, so it reflects today.
+to-report information-degraded?   ;; runs as an ngo-static
+  report (manual-fallback? or (not is-connected?))
+end
+
+;; THE CONTROL ARM'S HEURISTIC — and the reason the comparison in this study is
+;; fair.
+;;
+;; A clinic with no forecasting capability is not thereby stupid. When its
+;; information system goes down, the standard operational response — the one in
+;; every inventory textbook, requiring no analytics whatsoever — is to HOLD MORE
+;; BUFFER, because effective lead-time and demand uncertainty have just risen.
+;; The control arm does that: while information is degraded it inflates its
+;; reorder threshold and its order-up-to target by OUTAGE-BUFFER-INFLATION.
+;;
+;; Without this, the non-predictive arm read a frozen ledger at face value and
+;; had NO response of any kind to a known outage. Measuring forecasting against
+;; that is measuring it against a strawman, and the effect size it produces is
+;; not defensible — a reviewer would say the baseline was rigged. With it, the
+;; contrast is between two REAL strategies for the same problem:
+;;
+;;   control    — crude, non-quantitative: "data is bad, so carry more stock"
+;;   predictive — quantitative: "data is N days stale, so subtract N days of
+;;                forecast demand from what the ledger claims"
+;;
+;; The predictive arm does NOT also get the buffer. It addresses the same
+;; uncertainty analytically; stacking both would double-count it.
+;;
+;; Scope note: the inflation is OUTAGE-CONDITIONAL, not permanent. In normal
+;; connected operation the ledger is stale by a fixed, known ~3 days, and the
+;; base safety stock (7.1 days of cover) already absorbs that by design. The
+;; heuristic is for the abnormal condition, which is the condition the control
+;; arm previously ignored entirely.
+to-report effective-safety-stock [ c-idx ]   ;; runs as an ngo-static
+  let base (item c-idx safety-stock)
+  ifelse (not predictive-modeling?) and information-degraded?
+    [ report (base * outage-buffer-inflation) ]
+    [ report base ]
+end
+
 to-report reorder-triggered? [ c-idx ]   ;; runs as an ngo-static
   let believed (item c-idx recorded-stock-ledger)
-  let trigger-level (item c-idx safety-stock)
+  let trigger-level (effective-safety-stock c-idx)
   ifelse predictive-modeling?
     [ let fc (item c-idx forecast-daily-demand)
       report (believed - (fc * (projection-horizon c-idx))) <= trigger-level ]
