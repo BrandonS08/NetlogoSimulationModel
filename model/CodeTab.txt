@@ -266,6 +266,33 @@ end
 ;; back to zero and silently discard whatever the experiment assigned.
 ;; (Local LET variables survive clear-all; globals do not. That is the whole
 ;; trick here.)
+;;
+;; ############################################################################
+;; # EVERY PARAMETER YOU CARE ABOUT MUST APPEAR IN THE BEHAVIORSPACE VARY BOX #
+;; ############################################################################
+;;
+;; This procedure preserves what BehaviorSpace assigned. It CANNOT supply a
+;; default for a parameter BehaviorSpace never assigned, because an unassigned
+;; global reads as 0 and 0 is a legitimate value for every one of these five —
+;; there is no way to tell "set to zero" from "never set".
+;;
+;; So a parameter omitted from the Vary box silently runs at ZERO, not at its
+;; default. This has already bitten once: grid-failure-rate was left out, ran at
+;; 0 instead of 0.1, and connectivity never failed outside demand shocks —
+;; which silently disabled the information-degradation mechanism in half the
+;; design. Nothing errored. The runs just came back clean and meaningless.
+;;
+;; Hold a parameter constant by giving it a one-element list. This costs no
+;; extra runs and makes the value explicit in the output CSV:
+;;
+;;   ["environmental-latency-severity" 0 1 2 3]   <- varied
+;;   ["bureaucratic-latency-severity" 0 1 2 3]    <- varied
+;;   ["predictive-modeling?" true false]          <- varied
+;;   ["demand-shocks?" true false]                <- varied
+;;   ["grid-failure-rate" 0.1]                    <- HELD CONSTANT, still listed
+;;
+;; Rule of thumb: if a name appears in SET-RESEARCH-DEFAULTS, it belongs in the
+;; Vary box of every experiment, varied or pinned.
 to setup-experiment
   let keep-grid    grid-failure-rate
   let keep-env     environmental-latency-severity

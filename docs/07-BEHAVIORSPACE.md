@@ -54,7 +54,29 @@ parameter you introduced was never varied.*
 ["bureaucratic-latency-severity" 0 1 2 3]
 ["predictive-modeling?" true false]
 ["demand-shocks?" true false]
+["grid-failure-rate" 0.1]
 ```
+
+> ### ⚠️ Every research parameter must be listed here, even the constant ones
+>
+> The fifth line pins `grid-failure-rate` at its default. A one-element list
+> holds a value constant and **adds no runs** — still 64 conditions.
+>
+> It has to be there. `setup-experiment` preserves what BehaviorSpace assigns,
+> but it cannot supply a default for something BehaviorSpace never assigned: an
+> unassigned global reads as `0`, and `0` is a legitimate value for all five
+> parameters, so "set to zero" and "never set" are indistinguishable.
+>
+> **A parameter omitted from this box silently runs at zero.** That happened:
+> `grid-failure-rate` was left out, ran at 0 instead of 0.1, and connectivity
+> never failed outside demand shocks — disabling the information-degradation
+> mechanism across all 32 shocks-off conditions. Every `pct-time-on-paper`
+> value came back as exactly 0.0. Nothing errored; the results were simply
+> meaningless.
+>
+> **Detection:** in any run with `demand-shocks? = false`, `pct-time-on-paper`
+> should be well above zero. If it is exactly 0.0 across every such row,
+> `grid-failure-rate` is missing from the Vary box.
 
 4. **Repetitions**: `10`
 5. Leave **Sequential run order** checked.
