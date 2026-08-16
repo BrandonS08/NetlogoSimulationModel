@@ -116,6 +116,9 @@ ngo-statics-own [
   fallback-recovery-countdown ;; behavioral stickiness after reconnection
   last-sync-tick
   is-connected?
+  outage-days-remaining       ;; days left in the connectivity outage now in progress.
+                              ;; Outages are EVENTS WITH DURATION, not independent daily
+                              ;; coin flips -- see UPDATE-CONNECTIVITY.
 
   ;; --- procurement state ---
   c2-order-outstanding?   ;; true while a C2 requisition is in flight (prevents duplicate orders)
@@ -217,6 +220,10 @@ globals [
   shock-duration-min shock-duration-max
   c-shock-multipliers p-shock-multipliers shock-demand-multiplier
   shock-grid-risk-add total-shock-days c1-heat-sensitive-share
+  shock-outage-extension          ;; multiplier on OUTAGE LENGTH during a shock
+
+  ;; ---- connectivity outage process ----
+  outage-duration-min outage-duration-max   ;; days per outage event
 
   ;; ---- run control ----
   simulation-length-days
@@ -242,6 +249,11 @@ globals [
   paper-days-cum                           ;; clinic-days spent on paper fallback
   phantom-lockout-days-cum                 ;; static commodity-line-days spent in
                                            ;; phantom overstock lockout
+  ;; Running sums for the three information/finance metrics whose plain
+  ;; reporters are FINAL-DAY SNAPSHOTS. Dividing these by ticks gives a
+  ;; whole-run average, which is what BehaviorSpace should record — a single
+  ;; day's reading swings on whether that day happened to fall in an outage.
+  ledger-age-cum ledger-gap-c2-cum unverified-revenue-cum
 ]
 
 ;; ============================================================================
@@ -261,6 +273,33 @@ end
 ;; back to zero and silently discard whatever the experiment assigned.
 ;; (Local LET variables survive clear-all; globals do not. That is the whole
 ;; trick here.)
+;;
+;; ############################################################################
+;; # EVERY PARAMETER YOU CARE ABOUT MUST APPEAR IN THE BEHAVIORSPACE VARY BOX #
+;; ############################################################################
+;;
+;; This procedure preserves what BehaviorSpace assigned. It CANNOT supply a
+;; default for a parameter BehaviorSpace never assigned, because an unassigned
+;; global reads as 0 and 0 is a legitimate value for every one of these five —
+;; there is no way to tell "set to zero" from "never set".
+;;
+;; So a parameter omitted from the Vary box silently runs at ZERO, not at its
+;; default. This has already bitten once: grid-failure-rate was left out, ran at
+;; 0 instead of 0.1, and connectivity never failed outside demand shocks —
+;; which silently disabled the information-degradation mechanism in half the
+;; design. Nothing errored. The runs just came back clean and meaningless.
+;;
+;; Hold a parameter constant by giving it a one-element list. This costs no
+;; extra runs and makes the value explicit in the output CSV:
+;;
+;;   ["environmental-latency-severity" 0 1 2 3]   <- varied
+;;   ["bureaucratic-latency-severity" 0 1 2 3]    <- varied
+;;   ["predictive-modeling?" true false]          <- varied
+;;   ["demand-shocks?" true false]                <- varied
+;;   ["grid-failure-rate" 0.1]                    <- HELD CONSTANT, still listed
+;;
+;; Rule of thumb: if a name appears in SET-RESEARCH-DEFAULTS, it belongs in the
+;; Vary box of every experiment, varied or pinned.
 to setup-experiment
   let keep-grid    grid-failure-rate
   let keep-env     environmental-latency-severity
@@ -278,7 +317,30 @@ to setup-experiment
 end
 
 to set-research-defaults
-  set grid-failure-rate              0.1    ;; ~1 offline day in 10
+  ;; [LIT: NIPORT 2022 + World Bank CPSD] BASELINE share of NGO-clinic days on
+  ;; which the clinic cannot reach the central server. Composite of two channels
+  ;; the paper documents separately (2.2.3.2):
+  ;;
+  ;;   POWER. The 2022 national health facility survey reports 76.8% of NGO
+  ;;   clinics with "regular electricity", defined as no interruption exceeding
+  ;;   TWO HOURS during working hours across the seven days before the survey
+  ;;   (or a working generator / solar backup). So 23.2% failed that test over a
+  ;;   7-day window, which converts to a daily probability of
+  ;;   1 - 0.768^(1/7) = 0.037. Corroborated in direction by the World Bank
+  ;;   CPSD: 71% of Bangladeshi firms experience outages, averaging 26 per
+  ;;   month, and rural load-shedding running 8-10 hours a day.
+  ;;
+  ;;   CONNECTIVITY. [ASSUMPTION] ~0.065/day. The paper documents this as the
+  ;;   LARGER channel but gives no daily rate: only 49.8% of NGO service
+  ;;   delivery points have a functioning internet-connected computer at all
+  ;;   (down from 74% in 2017), and mean download speed is 10.60 Mbps -- last of
+  ;;   110 countries measured. A clinic with power but no usable uplink cannot
+  ;;   sync, so this is additive to the power channel.
+  ;;
+  ;; INTERPRETIVE STEP, stated plainly: the survey measures a share of
+  ;; FACILITIES; this uses it as a share of CLINIC-DAYS. Same move already made
+  ;; for reporting-error-rate. Sensitivity-test this parameter.
+  set grid-failure-rate              0.1    ;; 0.037 power + ~0.065 connectivity
   set environmental-latency-severity 1      ;; baseline technical latency
   set bureaucratic-latency-severity  1      ;; baseline approval delay (2 days)
   set predictive-modeling?           false  ;; control arm
@@ -532,8 +594,26 @@ to setup-parameters
   ;; response commodities (IV fluids, ORS, test kits) — while chronic-disease
   ;; medicines barely move. This matters because C3 also has the thinnest buffer,
   ;; so the shock lands where the information system is least forgiving.
-  set shock-grid-risk-add     0.25        ;; [SPEC]
+  set shock-grid-risk-add     0.25        ;; [SPEC] additional GRID STRESS during a shock.
+                                          ;; Now used only as the refrigeration-stress proxy
+                                          ;; for cold-chain spoilage. The INFORMATION channel
+                                          ;; is handled by shock-outage-extension below.
   set total-shock-days        0
+
+  ;; ---- connectivity outage process ----
+  ;; [ASSUMPTION, informed by paper 2.2.3.2] An outage is an EVENT lasting one
+  ;; to three days, not an independent daily coin flip. The paper describes
+  ;; load-shedding as a sustained condition -- Bogura seeing 8-10 hour outages
+  ;; "every day" through a stress period -- so bad days arrive in runs, not
+  ;; scattered singly. Clustering matters here beyond realism: consecutive
+  ;; offline days are what let the ledger drift far from the shelf, which
+  ;; scattered single days never do.
+  set outage-duration-min     1
+  set outage-duration-max     3
+  ;; MONSOON / FLOOD makes outages LONGER, not more frequent (paper 2.2.3.2:
+  ;; demand peaks coincide with load-shedding, which extends daily outage
+  ;; windows). [ASSUMPTION] x2 length.
+  set shock-outage-extension  2.0
 
   ;; ---- run control ----
   set simulation-length-days 3650         ;; ten years of daily ticks (author's decision).
@@ -569,6 +649,9 @@ to setup-parameters
   set facility-days 0
   set paper-days-cum 0
   set phantom-lockout-days-cum 0
+  set ledger-age-cum 0
+  set ledger-gap-c2-cum 0
+  set unverified-revenue-cum 0
 end
 
 to setup-geography
@@ -700,6 +783,7 @@ to setup-ngo-network
     set fallback-recovery-countdown 0
     set last-sync-tick 0
     set is-connected? true
+    set outage-days-remaining 0
 
     set c2-order-outstanding? false
     set c3-order-outstanding? false
@@ -800,10 +884,69 @@ to update-demand-shocks
   if shock-active? [ set total-shock-days (total-shock-days + 1) ]
 end
 
+;; ---------------------------------------------------------------------------
+;; THE CONNECTIVITY OUTAGE PROCESS
+;;
+;; ENVIRONMENTAL-LATENCY-SEVERITY SCALES OUTAGE FREQUENCY, not just the damage
+;; each outage does. Before this revision the dial moved only the consequences
+;; of an outage -- the sync delay and the manual-record error rate -- while the
+;; grid failed at exactly the same rate at severity 3 as at severity 0. That
+;; contradicted the paper, which grounds information latency first of all in
+;; "power grid shedding, bandwidth throttling, digital hardware disparities"
+;; (2.2.4). A dial named for the environment has to move the environment.
+;;
+;; The dial is therefore a COMPOSITE INDEX of information-environment quality,
+;; and jointly scales three things the paper treats as one phenomenon:
+;;   1. how OFTEN the clinic loses connectivity        (here)
+;;   2. how STALE the ledger is when connected         (ledger-staleness-days)
+;;   3. how ERROR-PRONE the paper fallback is          (accumulate-paper-error)
+;; Say this explicitly in the write-up. It is defensible -- those three share a
+;; cause -- but a reader must not have to discover it.
+;;
+;; At severity 0 the grid never fails, giving a genuinely clean
+;; perfect-information control: no outages, no staleness, no paper error.
+;; At severity 1 the offline FRACTION equals GRID-FAILURE-RATE exactly, matching
+;; earlier builds.
+;;
+;; Time on paper does NOT match earlier builds, and that is expected. Scattered
+;; single offline days each triggered their own FALLBACK-RECOVERY-LAG window, so
+;; the old process spent ~57% of days on paper for only 10% offline. Clustering
+;; the same 10% into 1-3 day runs produces fewer distinct outage EVENTS and so
+;; fewer recovery windows: ~40% at severity 1, rising to ~87% at severity 3.
+;; The old number was an artefact of treating outages as independent daily coin
+;; flips; paper time now responds to the dial instead of sitting flat.
+;; ---------------------------------------------------------------------------
+
+to-report mean-outage-duration
+  report ((outage-duration-min + outage-duration-max) / 2)
+end
+
+;; Long-run share of clinic-days spent offline, after the severity dial.
+to-report target-offline-fraction
+  report min (list 0.9 (grid-failure-rate * environmental-latency-severity))
+end
+
+;; Daily probability a NEW outage begins.  Derived from the target offline
+;; fraction rather than set directly, so that changing outage DURATION changes
+;; the CLUSTERING of offline days without silently changing how many there are.
+;; For an alternating renewal process with mean outage length d and mean uptime
+;; 1/p, the offline fraction is f = d / (d + 1/p), so p = f / (d * (1 - f)).
+to-report outage-onset-probability
+  let f target-offline-fraction
+  ifelse f <= 0
+    [ report 0 ]
+    [ report (f / (mean-outage-duration * (1 - f))) ]
+end
+
+;; Grid-stress proxy, retained ONLY for the cold-chain spoilage rules, which
+;; compare it against 0.3.  Behaviour at the default severity is unchanged from
+;; earlier builds: 0.1 + 0.25 = 0.35 during a shock, crossing the threshold
+;; exactly as before.  The information channel no longer reads this reporter.
 to-report effective-grid-failure-rate
+  let f target-offline-fraction
   ifelse shock-active?
-    [ report min (list 1.0 (grid-failure-rate + shock-grid-risk-add)) ]
-    [ report grid-failure-rate ]
+    [ report min (list 1.0 (f + shock-grid-risk-add)) ]
+    [ report f ]
 end
 
 to-report c-shock-multiplier [ c-idx ]     ;; NGO classes C1..C3
@@ -817,7 +960,19 @@ end
 to update-connectivity
   ask ngo-statics [
     let was-connected? is-connected?
-    set is-connected? ((random-float 1.0) >= effective-grid-failure-rate)
+    ifelse outage-days-remaining > 0
+      [ ;; an outage is already running: burn one day off it
+        set outage-days-remaining (outage-days-remaining - 1) ]
+      [ ;; otherwise, does a new one begin today?
+        if (random-float 1.0) < outage-onset-probability [
+          let d (outage-duration-min + random ((outage-duration-max - outage-duration-min) + 1))
+          ;; MONSOON / FLOOD LENGTHENS OUTAGES. Demand spikes and load-shedding
+          ;; arrive together, so the clinic is blind for longer exactly when it
+          ;; is busiest -- the compounding the paper describes in 2.2.4.
+          if shock-active? [ set d (round (d * shock-outage-extension)) ]
+          set outage-days-remaining d
+        ] ]
+    set is-connected? (outage-days-remaining = 0)
     ;; on reconnection, staff keep using paper registers for a few days
     if (not was-connected?) and is-connected? and manual-fallback? [
       set fallback-recovery-countdown fallback-recovery-lag
@@ -1646,6 +1801,11 @@ to update-running-metrics
   ]
   set phantom-lockout-days-cum (phantom-lockout-days-cum
       + (sum [ length filter [ b -> b ] phantom-locked? ] of ngo-statics))
+
+  ;; Accumulate the three snapshot metrics so a whole-run average is available.
+  set ledger-age-cum          (ledger-age-cum + mean-ledger-age-days)
+  set ledger-gap-c2-cum       (ledger-gap-c2-cum + mean-ledger-gap-c2)
+  set unverified-revenue-cum  (unverified-revenue-cum + mean-unverified-revenue)
 end
 
 ;; ============================================================================
@@ -1815,6 +1975,27 @@ end
 ;; untouched while changing only how the clinic READS that data.  (docs/05 check 2)
 to-report mean-ledger-age-days
   report mean [ ticks - ledger-snapshot-tick ] of ngo-statics
+end
+
+;; ---- whole-run averages of the three snapshot metrics ----
+;;
+;; USE THESE IN BEHAVIORSPACE, not the snapshot versions above and below.
+;; MEAN-LEDGER-AGE-DAYS answers "how stale is the ledger RIGHT NOW", which is
+;; the right thing for a live monitor and the wrong thing for an end-of-run
+;; measurement: day 3,650 either did or did not land inside an outage, and that
+;; coin flip is most of the between-run variance. These average every simulated
+;; day of the run instead, so they measure the information regime rather than
+;; one arbitrary Tuesday.
+to-report avg-ledger-age-days
+  report ledger-age-cum / (max (list 1 ticks))
+end
+
+to-report avg-ledger-gap-c2
+  report ledger-gap-c2-cum / (max (list 1 ticks))
+end
+
+to-report avg-unverified-revenue
+  report unverified-revenue-cum / (max (list 1 ticks))
 end
 
 ;; Units of disagreement between belief and reality.  IMPORTANT CAVEAT: this
