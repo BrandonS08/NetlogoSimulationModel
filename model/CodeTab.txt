@@ -499,11 +499,17 @@ to setup-parameters
                                      ;; interpretive step — the source reports the share of
                                      ;; RECORDS that disagree, not the share of UNITS mis-posted —
                                      ;; and it is stated as such in docs/04.
-                                     ;; Two reasons this is conservative: (a) Bekele's facilities
+                                     ;; THREE reasons this is conservative: (a) Bekele's facilities
                                      ;; use bin cards as their ROUTINE system, whereas here paper
                                      ;; is an emergency fallback, and Larsen et al. 2019 found
                                      ;; emergency downtime paper records "significantly
                                      ;; fragmented", with "not all documentation completed";
+                                     ;; (a2) 78.3% sits at the TOP of the published range -- Bekele's
+                                     ;; own discussion reports stock-keeping record accuracy
+                                     ;; "ranged from 30.4% to 78.5% across studies", so 21.7% error
+                                     ;; is the OPTIMISTIC end of the literature, not a worst case.
+                                     ;; Useful against any claim the error was inflated to
+                                     ;; manufacture the result;
                                      ;; (b) the POSITIVE bias is directly evidenced — Bekele found
                                      ;; "losses and adjustments" filled in only 35% of records,
                                      ;; the least-recorded data component of all, so unrecorded
